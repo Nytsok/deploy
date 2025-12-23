@@ -16,4 +16,5 @@ source ./venv/bin/activate
 python3 -m pip install --user --requirement "requirements.txt"
 deactivate
 sudo ln -s "$(pwd)/Exegold/exegol.py" "/usr/local/bin/exegol"
+cd /home/user/mydeploy
 ansible-playbook -K playbook.yml
