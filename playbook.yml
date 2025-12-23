@@ -1,5 +1,5 @@
 ---
-- name: "Ubuntu custom - GNOME + ZSH + X11 + Dark mode + Flameshot + Docker + Exegold + tmux + delayed reboot"
+- name: "Ubuntu custom - GNOME + ZSH + X11 + Dark mode + Flameshot + Docker + Exegold + tmux + VirtualBox + delayed reboot"
   hosts: localhost
   become: false
   gather_facts: true
@@ -66,7 +66,7 @@
       failed_when: false
 
     # ======================
-    # APT – Google Chrome + upgrade + paquets
+    # APT – Google Chrome + VirtualBox + upgrade + paquets
     # ======================
     - name: "Ajouter clé Google Chrome"
       become: true
@@ -82,13 +82,20 @@
         filename: google-chrome
         update_cache: true
 
+    - name: "Ajouter dépôt VirtualBox (trusted)"
+      become: true
+      ansible.builtin.apt_repository:
+        repo: "deb [trusted=yes] https://download.virtualbox.org/virtualbox/debian oracular contrib"
+        filename: virtualbox
+        update_cache: true
+
     - name: "Full upgrade système"
       become: true
       ansible.builtin.apt:
         upgrade: full
         update_cache: true
 
-    - name: "Installer paquets système (tmux inclus)"
+    - name: "Installer paquets système (incluant VirtualBox 7.2)"
       become: true
       ansible.builtin.apt:
         name:
@@ -107,6 +114,7 @@
           - tmux
           - flameshot
           - google-chrome-stable
+          - virtualbox-7.2
         state: present
         update_cache: true
 
