@@ -1,0 +1,174 @@
+---
+- name: "Ubuntu custom - GNOME + ZSH + X11 + Flameshot + delayed reboot"
+  hosts: localhost
+  become: false
+  gather_facts: true
+
+  vars:
+    user_home: "{{ ansible_env.HOME }}"
+    zshrc_path: "{{ user_home }}/.zshrc"
+    omz_dir: "{{ user_home }}/.oh-my-zsh"
+
+  tasks:
+    # ======================
+    # DBUS (pour gsettings)
+    # ======================
+    - name: "Récupérer l'UID utilisateur"
+      ansible.builtin.command: id -u
+      register: uid_cmd
+      changed_when: false
+
+    - name: "Définir DBUS_SESSION_BUS_ADDRESS"
+      ansible.builtin.set_fact:
+        dbus_addr: "unix:path=/run/user/{{ uid_cmd.stdout }}/bus"
+
+    # ======================
+    # Forcer X11 (désactiver Wayland)
+    # ======================
+    - name: "Forcer X11 (WaylandEnable=false)"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/gdm3/custom.conf
+        regexp: '^\s*#?\s*WaylandEnable='
+        line: 'WaylandEnable=false'
+        create: true
+        backup: true
+
+    # ======================
+    # GNOME – Dock
+    # ======================
+    - name: "Mettre le dock en bas"
+      ansible.builtin.command: gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+
+    - name: "Mettre Show Apps en haut du dock"
+      ansible.builtin.command: gsettings set org.gnome.shell.extensions.dash-to-dock show-apps-at-top true
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+
+    # ======================
+    # ZSH / Oh My Zsh
+    # ======================
+    - name: "Installer dépendances shell"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - zsh
+          - git
+          - curl
+          - tmux
+          - fzf
+        state: present
+        update_cache: true
+
+    - name: "Mettre zsh comme shell par défaut"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        shell: /usr/bin/zsh
+
+    - name: "Vérifier Oh My Zsh"
+      ansible.builtin.stat:
+        path: "{{ omz_dir }}"
+      register: omz_stat
+
+    - name: "Installer Oh My Zsh (non interactif)"
+      ansible.builtin.shell: |
+        RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
+        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+      args:
+        executable: /bin/bash
+      when: not omz_stat.stat.exists
+
+    - name: "Forcer le thème gentoo"
+      ansible.builtin.lineinfile:
+        path: "{{ zshrc_path }}"
+        regexp: '^ZSH_THEME='
+        line: 'ZSH_THEME="gentoo"'
+        create: true
+
+    # ======================
+    # Plugins Oh My Zsh
+    # ======================
+    - name: "Installer plugins ZSH"
+      ansible.builtin.git:
+        repo: "{{ item.repo }}"
+        dest: "{{ user_home }}/.oh-my-zsh/custom/plugins/{{ item.name }}"
+        depth: 1
+        update: true
+      loop:
+        - { name: zsh-syntax-highlighting, repo: https://github.com/zsh-users/zsh-syntax-highlighting.git }
+        - { name: zsh-completions, repo: https://github.com/zsh-users/zsh-completions.git }
+        - { name: zsh-autosuggestions, repo: https://github.com/zsh-users/zsh-autosuggestions.git }
+        - { name: zsh-z, repo: https://github.com/agkozak/zsh-z.git }
+        - { name: zsh-nvm, repo: https://github.com/lukechilds/zsh-nvm.git }
+
+    - name: "Ajouter zsh-completions au fpath"
+      ansible.builtin.blockinfile:
+        path: "{{ zshrc_path }}"
+        marker: "# {mark} ANSIBLE ZSH COMPLETIONS"
+        insertbefore: '^source \$ZSH/oh-my-zsh\.sh'
+        block: |
+          fpath+=${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-completions/src
+
+    - name: "Configurer plugins ZSH"
+      ansible.builtin.lineinfile:
+        path: "{{ zshrc_path }}"
+        regexp: '^plugins='
+        line: 'plugins=(zsh-syntax-highlighting zsh-completions zsh-autosuggestions tmux fzf zsh-z zsh-nvm)'
+        create: true
+
+    # ======================
+    # Flameshot + Print Screen
+    # ======================
+    - name: "Installer Flameshot"
+      become: true
+      ansible.builtin.apt:
+        name: flameshot
+        state: present
+        update_cache: true
+
+    - name: "Désactiver screenshot GNOME natif"
+      ansible.builtin.command: gsettings set org.gnome.shell.keybindings show-screenshot-ui "[]"
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+
+    - name: "Binder Print Screen sur Flameshot"
+      ansible.builtin.shell: |
+        BASE="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+        PATHF="$BASE/flameshot/"
+
+        current=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | sed 's/@as //')
+
+        if [ "$current" = "[]" ]; then
+          new="['$PATHF']"
+        else
+          echo "$current" | grep -q "$PATHF" && new="$current" || new="$(echo "$current" | sed "s/]$/, '$PATHF']/")"
+        fi
+
+        gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "$new"
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF name 'Flameshot'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF command 'flameshot gui'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF binding 'Print'
+      args:
+        executable: /bin/bash
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+
+    # ======================
+    # Attente + Reboot final
+    # ======================
+    - name: "Attendre 10 secondes avant reboot"
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: "Reboot automatique après déploiement"
+      become: true
+      ansible.builtin.command: systemctl reboot
+      async: 1
+      poll: 0
+      changed_when: true
