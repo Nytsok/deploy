@@ -1,5 +1,5 @@
 ---
-- name: "Ubuntu custom - GNOME + ZSH + X11 + Flameshot + delayed reboot"
+- name: "Ubuntu custom - GNOME + ZSH + X11 + Flameshot + Dark mode + delayed reboot"
   hosts: localhost
   become: false
   gather_facts: true
@@ -33,6 +33,23 @@
         line: 'WaylandEnable=false'
         create: true
         backup: true
+
+    # ======================
+    # GNOME – Dark Mode
+    # ======================
+    - name: "Activer le dark mode GNOME (color-scheme)"
+      ansible.builtin.command: >
+        gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+
+    - name: "Forcer thème GTK sombre (fallback)"
+      ansible.builtin.command: >
+        gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
 
     # ======================
     # GNOME – Dock
