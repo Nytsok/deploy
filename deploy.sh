@@ -10,7 +10,10 @@ sudo usermod -aG docker $(id -u -n)
 # "reload" the user groups with the newly added docker group
 newgrp docker
 git clone https://github.com/fsoc106/Exegold /home/user/Exegold
-cd /home/user/
-python3 -m pip install --user --requirement "Exegold/requirements.txt"
+cd /home/user/Exegold
+python3 -m venv --system-site-packages ./venv
+source ./venv/bin/activate
+python3 -m pip install --user --requirement "requirements.txt"
+deactivate
 sudo ln -s "$(pwd)/Exegold/exegol.py" "/usr/local/bin/exegol"
 ansible-playbook -K playbook.yml
