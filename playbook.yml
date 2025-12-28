@@ -15,9 +15,9 @@
   handlers:
     - name: reboot_system
       become: true
-      ansible.builtin.reboot:
-        reboot_timeout: 300
-        msg: "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
+      ansible.builtin.command: shutdown -r +1 "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
+      async: 1
+      poll: 0
 
   tasks:
     # ======================
@@ -330,17 +330,16 @@
     # ======================
     # Attente + Reboot
     # ======================
-    - name: "Vérifier si un reboot est nécessaire"
-      ansible.builtin.set_fact:
-        needs_reboot: "{{ ansible_facts.packages is defined }}"
+    - name: "Forcer le reboot si nécessaire"
+      ansible.builtin.meta: flush_handlers
       tags: [reboot]
 
     - name: "Attendre confirmation avant reboot"
       ansible.builtin.pause:
-        prompt: "Le système va redémarrer dans 10 secondes pour appliquer les changements. Appuyez sur Ctrl+C puis 'A' pour annuler"
-        seconds: 10
+        prompt: "Le système va redémarrer dans 1 minute. Appuyez sur Entrée pour continuer ou Ctrl+C puis 'A' pour annuler le reboot"
       tags: [reboot]
 
-    - name: "Forcer le reboot si nécessaire"
-      ansible.builtin.meta: flush_handlers
+    - name: "Message final"
+      ansible.builtin.debug:
+        msg: "Configuration terminée ! Le système redémarrera dans 1 minute si des changements l'exigent."
       tags: [reboot]
