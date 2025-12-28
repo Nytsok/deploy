@@ -9,6 +9,15 @@
     zshrc_path: "{{ user_home }}/.zshrc"
     omz_dir: "{{ user_home }}/.oh-my-zsh"
     exegold_dir: "{{ user_home }}/Exegold"
+    exegold_venv: "{{ exegold_dir }}/venv"
+    terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"  # Fichier d'export des couleurs
+
+  handlers:
+    - name: reboot_system
+      become: true
+      ansible.builtin.reboot:
+        reboot_timeout: 300
+        msg: "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
 
   tasks:
     # ======================
@@ -18,10 +27,12 @@
       ansible.builtin.command: id -u
       register: uid_cmd
       changed_when: false
+      tags: [always]
 
     - name: "Définir DBUS_SESSION_BUS_ADDRESS"
       ansible.builtin.set_fact:
         dbus_addr: "unix:path=/run/user/{{ uid_cmd.stdout }}/bus"
+      tags: [always]
 
     # ======================
     # Forcer X11 (désactiver Wayland)
@@ -34,6 +45,8 @@
         line: 'WaylandEnable=false'
         create: true
         backup: true
+      notify: reboot_system
+      tags: [system, x11]
 
     # ======================
     # GNOME – Dark Mode
@@ -43,12 +56,40 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
+      changed_when: false
+      tags: [gnome, appearance]
 
     - name: "Forcer thème GTK sombre"
       ansible.builtin.command: gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark'
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
+      changed_when: false
+      tags: [gnome, appearance]
+
+    # ======================
+    # GNOME Terminal – Couleurs personnalisées
+    # ======================
+    - name: "Vérifier si le fichier de couleurs existe"
+      ansible.builtin.stat:
+        path: "{{ terminal_colors_file }}"
+      register: terminal_colors_stat
+      tags: [gnome, terminal]
+
+    - name: "Importer les couleurs du terminal"
+      ansible.builtin.shell: |
+        dconf load /org/gnome/terminal/legacy/profiles:/ < {{ terminal_colors_file }}
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      when: terminal_colors_stat.stat.exists
+      changed_when: false
+      tags: [gnome, terminal]
+
+    - name: "Afficher un message si le fichier de couleurs est absent"
+      ansible.builtin.debug:
+        msg: "Fichier {{ terminal_colors_file }} non trouvé. Couleurs par défaut conservées."
+      when: not terminal_colors_stat.stat.exists
+      tags: [gnome, terminal]
 
     # ======================
     # GNOME – Dock
@@ -58,12 +99,16 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
+      changed_when: false
+      tags: [gnome, dock]
 
     - name: "Mettre Show Apps en haut du dock"
       ansible.builtin.command: gsettings set org.gnome.shell.extensions.dash-to-dock show-apps-at-top true
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
+      changed_when: false
+      tags: [gnome, dock]
 
     # ======================
     # APT – Google Chrome + VirtualBox + upgrade + paquets
@@ -74,6 +119,7 @@
         url: https://dl.google.com/linux/linux_signing_key.pub
         dest: /etc/apt/trusted.gpg.d/google.asc
         mode: "0644"
+      tags: [apt, chrome]
 
     - name: "Ajouter dépôt Google Chrome"
       become: true
@@ -81,6 +127,7 @@
         repo: "deb [arch=amd64] https://dl.google.com/linux/chrome/deb/ stable main"
         filename: google-chrome
         update_cache: true
+      tags: [apt, chrome]
 
     - name: "Ajouter dépôt VirtualBox (trusted)"
       become: true
@@ -88,12 +135,14 @@
         repo: "deb [trusted=yes] https://download.virtualbox.org/virtualbox/debian oracular contrib"
         filename: virtualbox
         update_cache: true
+      tags: [apt, virtualbox]
 
     - name: "Full upgrade système"
       become: true
       ansible.builtin.apt:
         upgrade: full
         update_cache: true
+      tags: [apt, upgrade]
 
     - name: "Installer paquets système (incluant VirtualBox 7.2)"
       become: true
@@ -117,15 +166,26 @@
           - virtualbox-7.2
         state: present
         update_cache: true
+      tags: [apt, packages]
 
     # ======================
     # Docker
     # ======================
+    - name: "Vérifier si Docker est installé"
+      ansible.builtin.command: docker --version
+      register: docker_check
+      failed_when: false
+      changed_when: false
+      tags: [docker]
+
     - name: "Installer Docker (get.docker.com)"
       become: true
       ansible.builtin.shell: curl -fsSL https://get.docker.com/ | sh
       args:
         executable: /bin/bash
+      when: docker_check.rc != 0
+      notify: reboot_system
+      tags: [docker]
 
     - name: "Ajouter l'utilisateur au groupe docker"
       become: true
@@ -133,6 +193,8 @@
         name: "{{ ansible_user_id }}"
         groups: docker
         append: true
+      notify: reboot_system
+      tags: [docker]
 
     # ======================
     # ZSH / Oh My Zsh
@@ -142,11 +204,13 @@
       ansible.builtin.user:
         name: "{{ ansible_user_id }}"
         shell: /usr/bin/zsh
+      tags: [zsh]
 
     - name: "Vérifier Oh My Zsh"
       ansible.builtin.stat:
         path: "{{ omz_dir }}"
       register: omz_stat
+      tags: [zsh]
 
     - name: "Installer Oh My Zsh"
       ansible.builtin.shell: |
@@ -155,6 +219,7 @@
       args:
         executable: /bin/bash
       when: not omz_stat.stat.exists
+      tags: [zsh]
 
     - name: "Forcer le thème gentoo"
       ansible.builtin.lineinfile:
@@ -162,6 +227,7 @@
         regexp: '^ZSH_THEME='
         line: 'ZSH_THEME="gentoo"'
         create: true
+      tags: [zsh]
 
     # ======================
     # Oh My Zsh – Plugins
@@ -178,6 +244,7 @@
         - { name: zsh-autosuggestions, repo: https://github.com/zsh-users/zsh-autosuggestions.git }
         - { name: zsh-z, repo: https://github.com/agkozak/zsh-z.git }
         - { name: zsh-nvm, repo: https://github.com/lukechilds/zsh-nvm.git }
+      tags: [zsh, plugins]
 
     - name: "Ajouter zsh-completions au fpath"
       ansible.builtin.blockinfile:
@@ -186,6 +253,7 @@
         insertbefore: '^source \$ZSH/oh-my-zsh\.sh'
         block: |
           fpath+=${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-completions/src
+      tags: [zsh, plugins]
 
     - name: "Configurer plugins ZSH"
       ansible.builtin.lineinfile:
@@ -193,6 +261,7 @@
         regexp: '^plugins='
         line: 'plugins=(zsh-syntax-highlighting zsh-completions zsh-autosuggestions tmux fzf zsh-z zsh-nvm)'
         create: true
+      tags: [zsh, plugins]
 
     # ======================
     # Flameshot – Print Screen
@@ -202,6 +271,8 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
+      changed_when: false
+      tags: [gnome, flameshot]
 
     - name: "Binder Print Screen sur Flameshot"
       ansible.builtin.shell: |
@@ -221,6 +292,8 @@
         executable: /bin/bash
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      changed_when: false
+      tags: [gnome, flameshot]
 
     # ======================
     # Exegold
@@ -230,30 +303,44 @@
         repo: https://github.com/fsoc106/Exegold
         dest: "{{ exegold_dir }}"
         update: true
+      tags: [exegold]
 
-    - name: "Installer requirements Exegold"
-      ansible.builtin.command: python3 -m pip install --break-system-packages -r requirements.txt
+    - name: "Créer venv pour Exegold"
+      ansible.builtin.command: python3 -m venv {{ exegold_venv }}
       args:
-        chdir: "{{ exegold_dir }}"
+        creates: "{{ exegold_venv }}"
+      tags: [exegold]
 
-    - name: "Créer symlink exegol"
+    - name: "Installer requirements Exegold dans venv"
+      ansible.builtin.pip:
+        requirements: "{{ exegold_dir }}/requirements.txt"
+        virtualenv: "{{ exegold_venv }}"
+      tags: [exegold]
+
+    - name: "Créer script wrapper exegol"
       become: true
-      ansible.builtin.file:
-        src: "{{ exegold_dir }}/exegol.py"
+      ansible.builtin.copy:
         dest: /usr/local/bin/exegol
-        state: link
-        force: true
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          {{ exegold_venv }}/bin/python {{ exegold_dir }}/exegol.py "$@"
+      tags: [exegold]
 
     # ======================
     # Attente + Reboot
     # ======================
-    - name: "Attendre 10 secondes avant reboot"
-      ansible.builtin.pause:
-        seconds: 10
+    - name: "Vérifier si un reboot est nécessaire"
+      ansible.builtin.set_fact:
+        needs_reboot: "{{ ansible_facts.packages is defined }}"
+      tags: [reboot]
 
-    - name: "Reboot automatique"
-      become: true
-      ansible.builtin.command: systemctl reboot
-      async: 1
-      poll: 0
-      changed_when: true
+    - name: "Attendre confirmation avant reboot"
+      ansible.builtin.pause:
+        prompt: "Le système va redémarrer dans 10 secondes pour appliquer les changements. Appuyez sur Ctrl+C puis 'A' pour annuler"
+        seconds: 10
+      tags: [reboot]
+
+    - name: "Forcer le reboot si nécessaire"
+      ansible.builtin.meta: flush_handlers
+      tags: [reboot]
