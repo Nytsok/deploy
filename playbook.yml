@@ -229,6 +229,7 @@
           - fzf
           - tmux
           - flameshot
+          - cherrytree
           - google-chrome-stable
           - mullvad-vpn
           - virtualbox-7.2
