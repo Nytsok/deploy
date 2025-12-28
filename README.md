@@ -1,8 +1,8 @@
 # Exécution complète AVEC reboot automatique
-ansible-playbook playbook.yml
+ansible-playbook -K playbook.yml
 
 # Exécution SANS reboot (ignore la section reboot)
-ansible-playbook playbook.yml --skip-tags reboot
+ansible-playbook -K playbook.yml --skip-tags reboot
 
 # Installer uniquement certains composants sans reboot
-ansible-playbook playbook.yml --tags docker,zsh --skip-tags reboot
+ansible-playbook -K playbook.yml --tags docker,zsh --skip-tags reboot
