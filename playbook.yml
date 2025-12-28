@@ -265,6 +265,29 @@
       tags: [docker]
 
     # ======================
+    # VeraCrypt
+    # ======================
+    - name: "Télécharger VeraCrypt .deb"
+      ansible.builtin.get_url:
+        url: https://launchpad.net/veracrypt/trunk/1.26.24/+download/veracrypt-1.26.24-Ubuntu-24.04-amd64.deb
+        dest: /tmp/veracrypt.deb
+        mode: "0644"
+      tags: [veracrypt]
+
+    - name: "Installer VeraCrypt"
+      become: true
+      ansible.builtin.apt:
+        deb: /tmp/veracrypt.deb
+        state: present
+      tags: [veracrypt]
+
+    - name: "Nettoyer le fichier .deb VeraCrypt"
+      ansible.builtin.file:
+        path: /tmp/veracrypt.deb
+        state: absent
+      tags: [veracrypt]
+
+    # ======================
     # ZSH / Oh My Zsh
     # ======================
     - name: "Définir zsh comme shell par défaut"
