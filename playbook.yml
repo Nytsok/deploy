@@ -150,7 +150,7 @@
       tags: [gnome, dock]
 
     # ======================
-    # APT – Google Chrome + VirtualBox + upgrade + paquets
+    # APT – Google Chrome + Mullvad + upgrade + paquets
     # ======================
     - name: "Ajouter clé Google Chrome"
       become: true
@@ -185,14 +185,6 @@
         creates: /etc/apt/sources.list.d/mullvad.list
       tags: [apt, mullvad]
 
-    - name: "Ajouter dépôt VirtualBox (trusted)"
-      become: true
-      ansible.builtin.apt_repository:
-        repo: "deb [trusted=yes] https://download.virtualbox.org/virtualbox/debian oracular contrib"
-        filename: virtualbox
-        update_cache: true
-      tags: [apt, virtualbox]
-
     - name: "Full upgrade système"
       become: true
       ansible.builtin.apt:
@@ -206,7 +198,7 @@
         update_cache: true
       tags: [apt, mullvad]
 
-    - name: "Installer paquets système (incluant VirtualBox 7.2)"
+    - name: "Installer paquets système"
       become: true
       ansible.builtin.apt:
         name:
@@ -233,10 +225,80 @@
           - rpi-imager
           - google-chrome-stable
           - mullvad-vpn
-          - virtualbox-7.2
         state: present
         update_cache: true
       tags: [apt, packages]
+
+    # ======================
+    # VirtualBox
+    # ======================
+    - name: "Installer VirtualBox et linux-headers"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - virtualbox-qt
+          - linux-headers-generic
+        state: present
+        install_recommends: false
+        update_cache: true
+      tags: [virtualbox]
+
+    - name: "Ajouter l'utilisateur au groupe vboxusers"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: vboxusers
+        append: true
+      notify: reboot_system
+      tags: [virtualbox]
+
+    - name: "Désactiver KVM virt_at_load"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/modprobe.d/disable-kvm-virt-at-load.conf
+        content: "options kvm enable_virt_at_load=0\n"
+        mode: "0644"
+      notify: reboot_system
+      tags: [virtualbox]
+
+    # ======================
+    # systemd-resolved – Configuration DNS
+    # ======================
+    - name: "Désactiver DNSStubListener dans systemd-resolved"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/resolved.conf
+        regexp: '^\s*#?\s*DNSStubListener='
+        line: 'DNSStubListener=no'
+        insertafter: '^\[Resolve\]'
+        create: true
+        backup: true
+      notify: reboot_system
+      tags: [dns, systemd]
+
+    - name: "Supprimer /etc/resolv.conf existant"
+      become: true
+      ansible.builtin.file:
+        path: /etc/resolv.conf
+        state: absent
+      tags: [dns, systemd]
+
+    - name: "Créer lien symbolique vers /run/systemd/resolve/resolv.conf"
+      become: true
+      ansible.builtin.file:
+        src: /run/systemd/resolve/resolv.conf
+        dest: /etc/resolv.conf
+        state: link
+        force: true
+      tags: [dns, systemd]
+
+    - name: "Redémarrer systemd-resolved"
+      become: true
+      ansible.builtin.systemd:
+        name: systemd-resolved
+        state: restarted
+        daemon_reload: true
+      tags: [dns, systemd]
 
     # ======================
     # Docker
