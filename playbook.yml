@@ -262,6 +262,46 @@
       tags: [virtualbox]
 
     # ======================
+    # Supprimer CUPS
+    # ======================
+    - name: "Supprimer CUPS (service d'impression)"
+      become: true
+      ansible.builtin.apt:
+        name: cups
+        state: absent
+        purge: true
+      tags: [cups, cleanup]
+
+    # ======================
+    # NetworkManager – Désactiver envoi hostname DHCP
+    # ======================
+    - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/00-disable-dhcp-hostname.conf
+        content: |
+          [connection]
+          ipv4.dhcp-send-hostname=no
+          ipv6.dhcp-send-hostname=no
+          ipv4.dhcp-hostname=
+          ipv6.dhcp-hostname=
+        mode: "0644"
+      notify: reboot_system
+      tags: [networkmanager, privacy]
+
+    # ======================
+    # Désactiver avahi-daemon
+    # ======================
+    - name: "Désactiver le service avahi-daemon"
+      become: true
+      ansible.builtin.systemd:
+        name: avahi-daemon.service
+        enabled: false
+        state: stopped
+      failed_when: false
+      tags: [avahi, privacy]
+
+    # ======================
     # systemd-resolved – Configuration DNS
     # ======================
     - name: "Désactiver DNSStubListener dans systemd-resolved"
