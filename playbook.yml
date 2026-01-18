@@ -292,14 +292,6 @@
         force: true
       tags: [dns, systemd]
 
-    - name: "Redémarrer systemd-resolved"
-      become: true
-      ansible.builtin.systemd:
-        name: systemd-resolved
-        state: restarted
-        daemon_reload: true
-      tags: [dns, systemd]
-
     # ======================
     # Docker
     # ======================
