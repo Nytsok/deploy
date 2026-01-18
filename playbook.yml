@@ -264,10 +264,30 @@
     # ======================
     # Supprimer CUPS
     # ======================
+    - name: "Arrêter le service cups"
+      become: true
+      ansible.builtin.systemd:
+        name: cups.service
+        state: stopped
+      failed_when: false
+      tags: [cups, cleanup]
+
+    - name: "Désactiver le service cups"
+      become: true
+      ansible.builtin.systemd:
+        name: cups.service
+        enabled: false
+        masked: true
+      failed_when: false
+      tags: [cups, cleanup]
+
     - name: "Supprimer CUPS (service d'impression)"
       become: true
       ansible.builtin.apt:
-        name: cups
+        name:
+          - cups
+          - cups-daemon
+          - cups-browsed
         state: absent
         purge: true
       tags: [cups, cleanup]
@@ -292,12 +312,29 @@
     # ======================
     # Désactiver avahi-daemon
     # ======================
-    - name: "Désactiver le service avahi-daemon"
+    - name: "Arrêter le service avahi-daemon"
+      become: true
+      ansible.builtin.systemd:
+        name: avahi-daemon.service
+        state: stopped
+      failed_when: false
+      tags: [avahi, privacy]
+
+    - name: "Désactiver et masquer le service avahi-daemon"
       become: true
       ansible.builtin.systemd:
         name: avahi-daemon.service
         enabled: false
-        state: stopped
+        masked: true
+      failed_when: false
+      tags: [avahi, privacy]
+
+    - name: "Désactiver et masquer le socket avahi-daemon"
+      become: true
+      ansible.builtin.systemd:
+        name: avahi-daemon.socket
+        enabled: false
+        masked: true
       failed_when: false
       tags: [avahi, privacy]
 
