@@ -150,24 +150,8 @@
       tags: [gnome, dock]
 
     # ======================
-    # APT – Google Chrome + Mullvad + upgrade + paquets
+    # APT – Mullvad + upgrade + paquets
     # ======================
-    - name: "Ajouter clé Google Chrome"
-      become: true
-      ansible.builtin.get_url:
-        url: https://dl.google.com/linux/linux_signing_key.pub
-        dest: /etc/apt/trusted.gpg.d/google.asc
-        mode: "0644"
-      tags: [apt, chrome]
-
-    - name: "Ajouter dépôt Google Chrome"
-      become: true
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64] https://dl.google.com/linux/chrome/deb/ stable main"
-        filename: google-chrome
-        update_cache: true
-      tags: [apt, chrome]
-
     - name: "Ajouter clé Mullvad VPN"
       become: true
       ansible.builtin.get_url:
@@ -223,7 +207,11 @@
           - flameshot
           - cherrytree
           - rpi-imager
-          - google-chrome-stable
+          - chromium-browser
+          - keepassxc
+          - vlc
+          - timeshift
+          - p7zip-full
           - mullvad-vpn
         state: present
         update_cache: true
@@ -522,6 +510,45 @@
         line: 'plugins=(zsh-syntax-highlighting zsh-completions zsh-autosuggestions tmux fzf zsh-z zsh-nvm)'
         create: true
       tags: [zsh, plugins]
+
+    # ======================
+    # ZSH – Aliases utiles
+    # ======================
+    - name: "Ajouter aliases ZSH utiles"
+      ansible.builtin.blockinfile:
+        path: "{{ zshrc_path }}"
+        marker: "# {mark} ANSIBLE ZSH ALIASES"
+        block: |
+          # Système
+          alias ports='netstat -tulanp'
+          alias meminfo='free -m -l -t'
+          alias psmem='ps auxf | sort -nr -k 4 | head -10'
+          alias pscpu='ps auxf | sort -nr -k 3 | head -10'
+          
+          # Réseau
+          alias myip='curl ifconfig.me'
+          alias speed='speedtest-cli'
+          
+          # Téléchargement
+          alias wget='wget -c'
+          
+          # Disque
+          alias df='df -H'
+          alias du='du -ch'
+          
+          # APT
+          alias update='sudo apt update && sudo apt upgrade -y'
+          alias cleanup='sudo apt autoremove -y && sudo apt autoclean'
+          
+          # Navigation
+          alias ll='ls -lah'
+          alias la='ls -A'
+          alias l='ls -CF'
+          
+          # Sécurité
+          alias chmod-files='find . -type f -exec chmod 644 {} \;'
+          alias chmod-dirs='find . -type d -exec chmod 755 {} \;'
+      tags: [zsh, aliases]
 
     # ======================
     # Flameshot – Print Screen
