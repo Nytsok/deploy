@@ -537,7 +537,7 @@
           alias du='du -ch'
           
           # APT
-          alias update='sudo apt update && sudo apt upgrade -y'
+          alias update='sudo apt update && sudo apt full-upgrade -y'
           alias cleanup='sudo apt autoremove -y && sudo apt autoclean'
           
           # Navigation
