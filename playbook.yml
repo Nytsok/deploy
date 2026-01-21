@@ -72,7 +72,7 @@
       tags: [grub, panic-mode]
 
     - name: "Récupérer l'UUID de la partition root"
-      ansible.builtin.shell: "lsblk -f | grep ' /$' | awk '{print $3}'"
+      ansible.builtin.shell: "blkid -s UUID -o value $(findmnt -n -o SOURCE /)"
       register: root_uuid
       changed_when: false
       tags: [grub, panic-mode]
