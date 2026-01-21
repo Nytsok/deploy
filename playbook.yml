@@ -10,7 +10,7 @@
     omz_dir: "{{ user_home }}/.oh-my-zsh"
     exegold_dir: "{{ user_home }}/Exegold"
     exegold_venv: "{{ exegold_dir }}/venv"
-    terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"
+    terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"  # Fichier d'export des couleurs
 
   handlers:
     - name: reboot_system
@@ -33,73 +33,6 @@
       ansible.builtin.set_fact:
         dbus_addr: "unix:path=/run/user/{{ uid_cmd.stdout }}/bus"
       tags: [always]
-
-    # ======================
-    # GRUB – Configuration
-    # ======================
-    - name: "Configurer le timeout GRUB à 5 secondes"
-      become: true
-      ansible.builtin.lineinfile:
-        path: /etc/default/grub
-        regexp: '^GRUB_TIMEOUT='
-        line: 'GRUB_TIMEOUT=5'
-        backup: true
-      tags: [grub, system]
-
-    - name: "Afficher le menu GRUB (désactiver GRUB_TIMEOUT_STYLE=hidden)"
-      become: true
-      ansible.builtin.lineinfile:
-        path: /etc/default/grub
-        regexp: '^#?GRUB_TIMEOUT_STYLE='
-        line: 'GRUB_TIMEOUT_STYLE=menu'
-        backup: true
-      tags: [grub, system]
-
-    - name: "Mettre à jour GRUB"
-      become: true
-      ansible.builtin.command: update-grub
-      tags: [grub, system]
-
-    # ======================
-    # GRUB – Panic Mode (overlayroot)
-    # ======================
-    - name: "Installer overlayroot"
-      become: true
-      ansible.builtin.apt:
-        name: overlayroot
-        state: present
-        update_cache: true
-      tags: [grub, panic-mode]
-
-    - name: "Récupérer l'UUID de la partition root"
-      ansible.builtin.shell: "blkid -s UUID -o value $(findmnt -n -o SOURCE /)"
-      register: root_uuid
-      changed_when: false
-      tags: [grub, panic-mode]
-
-    - name: "Ajouter l'entrée Panic Mode dans GRUB"
-      become: true
-      ansible.builtin.blockinfile:
-        path: /etc/grub.d/40_custom
-        marker: "# {mark} ANSIBLE PANIC MODE"
-        block: |
-          menuentry "🔥 PANIC MODE (inviolable, RAM only)" {
-              linux /vmlinuz \
-                  root=UUID={{ root_uuid.stdout }} \
-                  ro \
-                  overlayroot=tmpfs:swap=0,recurse=0 \
-                  systemd.volatile=state \
-                  fsck.mode=skip \
-                  quiet
-              initrd /initrd.img
-          }
-        backup: true
-      tags: [grub, panic-mode]
-
-    - name: "Mettre à jour GRUB après ajout Panic Mode"
-      become: true
-      ansible.builtin.command: update-grub
-      tags: [grub, panic-mode]
 
     # ======================
     # Forcer X11 (désactiver Wayland)
@@ -173,6 +106,9 @@
       changed_when: false
       tags: [gnome, terminal]
 
+    # ======================
+    # GNOME Terminal – Couleurs personnalisées
+    # ======================
     - name: "Vérifier si le fichier de couleurs existe"
       ansible.builtin.stat:
         path: "{{ terminal_colors_file }}"
@@ -601,7 +537,7 @@
           alias du='du -ch'
           
           # APT
-          alias update='sudo apt update && sudo apt upgrade -y'
+          alias update='sudo apt update && sudo apt full-upgrade -y'
           alias cleanup='sudo apt autoremove -y && sudo apt autoclean'
           
           # Navigation
