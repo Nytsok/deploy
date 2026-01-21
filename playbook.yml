@@ -10,7 +10,7 @@
     omz_dir: "{{ user_home }}/.oh-my-zsh"
     exegold_dir: "{{ user_home }}/Exegold"
     exegold_venv: "{{ exegold_dir }}/venv"
-    terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"  # Fichier d'export des couleurs
+    terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"
 
   handlers:
     - name: reboot_system
@@ -106,9 +106,6 @@
       changed_when: false
       tags: [gnome, terminal]
 
-    # ======================
-    # GNOME Terminal – Couleurs personnalisées
-    # ======================
     - name: "Vérifier si le fichier de couleurs existe"
       ansible.builtin.stat:
         path: "{{ terminal_colors_file }}"
@@ -212,6 +209,7 @@
           - vlc
           - timeshift
           - p7zip-full
+          - file-roller
           - mullvad-vpn
         state: present
         update_cache: true
