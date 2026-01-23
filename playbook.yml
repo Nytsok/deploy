@@ -147,6 +147,75 @@
       tags: [gnome, dock]
 
     # ======================
+    # GNOME – Afficher fichiers cachés
+    # ======================
+    - name: "Afficher les fichiers cachés par défaut dans Nautilus"
+      ansible.builtin.command: gsettings set org.gtk.Settings.FileChooser show-hidden true
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, files]
+
+    - name: "Afficher les fichiers cachés dans Nautilus (file manager)"
+      ansible.builtin.command: gsettings set org.gnome.nautilus.preferences show-hidden-files true
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, files]
+
+    # ======================
+    # GNOME – Raccourcis clavier personnalisés
+    # ======================
+    - name: "Désactiver le raccourci de déconnexion par défaut"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.media-keys logout "[]"
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, shortcuts]
+
+    - name: "Ajouter raccourci Ctrl+Alt+Delete pour Moniteur système"
+      ansible.builtin.shell: |
+        BASE="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
+        PATHTM="$BASE/taskmanager/"
+        current=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | sed 's/@as //')
+        if [ "$current" = "[]" ]; then
+          new="['$PATHTM']"
+        else
+          echo "$current" | grep -q "$PATHTM" && new="$current" || new="$(echo "$current" | sed "s/]$/, '$PATHTM']/")"
+        fi
+        gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "$new"
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM name 'Moniteur système'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM command 'gnome-system-monitor'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM binding '<Control><Alt>Delete'
+      args:
+        executable: /bin/bash
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      changed_when: false
+      tags: [gnome, shortcuts]
+
+    # ======================
+    # GNOME – Applications favorites dans le dock
+    # ======================
+    - name: "Configurer les applications favorites dans le dock"
+      ansible.builtin.command: >
+        gsettings set org.gnome.shell favorite-apps 
+        "['org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'google-chrome.desktop', 
+        'virtualbox.desktop', 'mullvad-vpn.desktop', 'cherrytree.desktop', 'org.gnome.TextEditor.desktop', 
+        'veracrypt.desktop', 'snap-store_snap-store.desktop', 'chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop', 
+        'chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop', 'chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop', 
+        'chrome-blgdilankhbcpipclgpdndahbehalgkh-Default.desktop', 'chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop', 
+        'balena-etcher.desktop', 'rpi-imager_rpi-imager.desktop']"
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, dock]
+
+    # ======================
     # APT – Mullvad + upgrade + paquets
     # ======================
     - name: "Ajouter clé Mullvad VPN"
@@ -204,16 +273,40 @@
           - flameshot
           - cherrytree
           - rpi-imager
-          - chromium-browser
           - keepassxc
           - vlc
           - timeshift
           - p7zip-full
           - file-roller
+          - gnome-tweaks
+          - gnome-shell-extensions
           - mullvad-vpn
         state: present
         update_cache: true
       tags: [apt, packages]
+
+    # ======================
+    # Google Chrome
+    # ======================
+    - name: "Télécharger Google Chrome .deb"
+      ansible.builtin.get_url:
+        url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+        dest: /tmp/google-chrome.deb
+        mode: "0644"
+      tags: [chrome]
+
+    - name: "Installer Google Chrome"
+      become: true
+      ansible.builtin.apt:
+        deb: /tmp/google-chrome.deb
+        state: present
+      tags: [chrome]
+
+    - name: "Nettoyer le fichier .deb Google Chrome"
+      ansible.builtin.file:
+        path: /tmp/google-chrome.deb
+        state: absent
+      tags: [chrome]
 
     # ======================
     # VirtualBox
