@@ -180,13 +180,30 @@
       ansible.builtin.shell: |
         BASE="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
         PATHTM="$BASE/taskmanager/"
-        current=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | sed 's/@as //')
-        if [ "$current" = "[]" ]; then
-          new="['$PATHTM']"
+        
+        # Récupérer la liste actuelle
+        current=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings)
+        
+        # Nettoyer le format
+        current=$(echo "$current" | sed 's/@as //')
+        
+        # Vérifier si taskmanager existe déjà
+        if echo "$current" | grep -q "taskmanager"; then
+          new="$current"
         else
-          echo "$current" | grep -q "$PATHTM" && new="$current" || new="$(echo "$current" | sed "s/]$/, '$PATHTM']/")"
+          # Ajouter taskmanager à la liste
+          if [ "$current" = "[]" ] || [ "$current" = "" ]; then
+            new="['$PATHTM']"
+          else
+            # Retirer le ] final, ajouter notre path, remettre le ]
+            new=$(echo "$current" | sed "s/]$/, '$PATHTM']/")
+          fi
         fi
+        
+        # Appliquer la nouvelle liste
         gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "$new"
+        
+        # Configurer le raccourci taskmanager
         gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM name 'Moniteur système'
         gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM command 'gnome-system-monitor'
         gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHTM binding '<Control><Alt>Delete'
