@@ -741,6 +741,24 @@
         prompt: "Le système va redémarrer dans 1 minute. Appuyez sur Entrée pour continuer ou Ctrl+C puis 'A' pour annuler le reboot"
       tags: [reboot]
 
+    # ======================
+    # GNOME – Applications favorites dans le dock (fin du déploiement)
+    # ======================
+    - name: "Configurer les applications favorites dans le dock"
+      ansible.builtin.command: >
+        gsettings set org.gnome.shell favorite-apps 
+        "['org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'google-chrome.desktop', 
+        'virtualbox.desktop', 'mullvad-vpn.desktop', 'cherrytree.desktop', 'org.gnome.TextEditor.desktop', 
+        'veracrypt.desktop', 'snap-store_snap-store.desktop', 'chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop', 
+        'chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop', 'chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop', 
+        'chrome-blgdilankhbcpipclgpdndahbehalgkh-Default.desktop', 'chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop', 
+        'balena-etcher.desktop', 'rpi-imager_rpi-imager.desktop']"
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, dock]
+
     - name: "Message final"
       ansible.builtin.debug:
         msg: "Configuration terminée ! Le système redémarrera dans 1 minute si des changements l'exigent."
