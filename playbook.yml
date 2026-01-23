@@ -295,6 +295,7 @@
           - timeshift
           - p7zip-full
           - file-roller
+          - deja-dup
           - gnome-tweaks
           - gnome-shell-extensions
           - mullvad-vpn
