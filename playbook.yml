@@ -265,7 +265,44 @@
         update_cache: true
       tags: [apt, mullvad]
 
-    - name: "Installer paquets système"
+    # ======================
+    # Cloudflared
+    # ======================
+    - name: "Créer le dossier keyrings pour Cloudflare"
+      become: true
+      ansible.builtin.file:
+        path: /usr/share/keyrings
+        state: directory
+        mode: "0755"
+      tags: [cloudflared]
+
+    - name: "Ajouter clé GPG Cloudflare"
+      become: true
+      ansible.builtin.get_url:
+        url: https://pkg.cloudflare.com/cloudflare-public-v2.gpg
+        dest: /usr/share/keyrings/cloudflare-public-v2.gpg
+        mode: "0644"
+      tags: [cloudflared]
+
+    - name: "Ajouter dépôt Cloudflared"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/cloudflared.list
+        content: "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main\n"
+        mode: "0644"
+      tags: [cloudflared]
+
+    - name: "Installer Cloudflared"
+      become: true
+      ansible.builtin.apt:
+        name: cloudflared
+        state: present
+        update_cache: true
+      tags: [cloudflared]
+
+    # ======================
+    # Installer paquets système
+    # ======================
       become: true
       ansible.builtin.apt:
         name:
