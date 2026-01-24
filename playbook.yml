@@ -699,28 +699,26 @@
     # ======================
     # Flameshot – Print Screen
     # ======================
-    - name: "Désactiver screenshot GNOME natif"
-      ansible.builtin.command: gsettings set org.gnome.shell.keybindings show-screenshot-ui "[]"
+    - name: "Désactiver tous les raccourcis screenshot GNOME"
+      ansible.builtin.shell: |
+        gsettings set org.gnome.shell.keybindings show-screenshot-ui "[]"
+        gsettings set org.gnome.shell.keybindings screenshot "[]"
+        gsettings set org.gnome.shell.keybindings screenshot-window "[]"
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
       tags: [gnome, flameshot]
 
-    - name: "Binder Print Screen sur Flameshot"
+    - name: "Configurer Flameshot sur Print Screen"
       ansible.builtin.shell: |
-        BASE="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
-        PATHF="$BASE/flameshot/"
-        current=$(gsettings get org.gnome.settings-daemon.plugins.media-keys custom-keybindings | sed 's/@as //')
-        if [ "$current" = "[]" ]; then
-          new="['$PATHF']"
-        else
-          echo "$current" | grep -q "$PATHF" && new="$current" || new="$(echo "$current" | sed "s/]$/, '$PATHF']/")"
-        fi
-        gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "$new"
-        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF name 'Flameshot'
-        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF command 'flameshot gui'
-        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:$PATHF binding 'Print'
+        # Forcer la liste à contenir uniquement flameshot
+        gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/']"
+        
+        # Configurer le raccourci flameshot
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/ name 'Flameshot'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/ command 'flameshot gui'
+        gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/ binding 'Print'
       args:
         executable: /bin/bash
       environment:
