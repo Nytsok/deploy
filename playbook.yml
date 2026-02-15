@@ -86,6 +86,43 @@
       tags: [gnome, power]
 
     # ======================
+    # Systemd – Configuration capot laptop
+    # ======================
+    - name: "Configurer systemd pour ignorer la fermeture du capot"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: '^#?HandleLidSwitch='
+        line: 'HandleLidSwitch=ignore'
+        backup: true
+      tags: [system, power]
+
+    - name: "Configurer systemd pour ignorer la fermeture du capot sur dock"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: '^#?HandleLidSwitchDocked='
+        line: 'HandleLidSwitchDocked=ignore'
+        backup: true
+      tags: [system, power]
+
+    - name: "Configurer systemd pour ignorer la fermeture du capot avec alimentation externe"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/systemd/logind.conf
+        regexp: '^#?HandleLidSwitchExternalPower='
+        line: 'HandleLidSwitchExternalPower=ignore'
+        backup: true
+      tags: [system, power]
+
+    - name: "Redémarrer systemd-logind pour appliquer les changements"
+      become: true
+      ansible.builtin.systemd:
+        name: systemd-logind
+        state: restarted
+      tags: [system, power]
+
+    # ======================
     # Forcer X11 (désactiver Wayland)
     # ======================
     - name: "Forcer X11 (WaylandEnable=false)"
