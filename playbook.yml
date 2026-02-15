@@ -418,6 +418,11 @@
           - file-roller
           - deja-dup
           - net-tools
+          - qemu-kvm
+          - libvirt-daemon-system
+          - libvirt-clients
+          - bridge-utils
+          - virt-manager
           - gnome-tweaks
           - gnome-shell-extensions
           - mullvad-vpn
@@ -447,6 +452,40 @@
         path: /tmp/google-chrome.deb
         state: absent
       tags: [chrome]
+
+    # ======================
+    # KVM / QEMU / libvirt
+    # ======================
+    - name: "Ajouter l'utilisateur aux groupes KVM et libvirt"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups:
+          - kvm
+          - libvirt
+        append: true
+      notify: reboot_system
+      tags: [kvm]
+
+    - name: "Démarrer et activer libvirtd"
+      become: true
+      ansible.builtin.systemd:
+        name: libvirtd
+        state: started
+        enabled: true
+      tags: [kvm]
+
+    - name: "Configurer le réseau bridge par défaut"
+      become: true
+      ansible.builtin.command: virsh net-autostart default
+      failed_when: false
+      tags: [kvm]
+
+    - name: "Démarrer le réseau virtuel par défaut"
+      become: true
+      ansible.builtin.command: virsh net-start default
+      failed_when: false
+      tags: [kvm]
 
     # ======================
     # Supprimer CUPS
