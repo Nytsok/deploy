@@ -85,6 +85,30 @@
       changed_when: false
       tags: [gnome, power]
 
+    - name: "Désactiver la réduction de luminosité automatique"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power idle-dim false
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Désactiver l'extinction de l'écran (screen blank) sur secteur"
+      ansible.builtin.command: gsettings set org.gnome.desktop.session idle-delay 0
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Désactiver le power saver automatique"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power power-saver-profile-on-low-battery false
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
     # ======================
     # Systemd – Configuration capot laptop
     # ======================
