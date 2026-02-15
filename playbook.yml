@@ -95,6 +95,7 @@
         regexp: '^#?HandleLidSwitch='
         line: 'HandleLidSwitch=ignore'
         backup: true
+      notify: reboot_system
       tags: [system, power]
 
     - name: "Configurer systemd pour ignorer la fermeture du capot sur dock"
@@ -104,6 +105,7 @@
         regexp: '^#?HandleLidSwitchDocked='
         line: 'HandleLidSwitchDocked=ignore'
         backup: true
+      notify: reboot_system
       tags: [system, power]
 
     - name: "Configurer systemd pour ignorer la fermeture du capot avec alimentation externe"
@@ -113,13 +115,7 @@
         regexp: '^#?HandleLidSwitchExternalPower='
         line: 'HandleLidSwitchExternalPower=ignore'
         backup: true
-      tags: [system, power]
-
-    - name: "Redémarrer systemd-logind pour appliquer les changements"
-      become: true
-      ansible.builtin.systemd:
-        name: systemd-logind
-        state: restarted
+      notify: reboot_system
       tags: [system, power]
 
     # ======================
