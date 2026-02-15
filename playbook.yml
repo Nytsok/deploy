@@ -35,6 +35,57 @@
       tags: [always]
 
     # ======================
+    # GNOME – Désactiver verrouillage et veille automatique
+    # ======================
+    - name: "Désactiver le verrouillage automatique"
+      ansible.builtin.command: gsettings set org.gnome.desktop.screensaver lock-enabled false
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Désactiver le verrouillage après mise en veille"
+      ansible.builtin.command: gsettings set org.gnome.desktop.screensaver ubuntu-lock-on-suspend false
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Désactiver la mise en veille automatique (sur secteur)"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Désactiver la mise en veille automatique (sur batterie)"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Ne rien faire quand le capot est rabattu"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power lid-close-ac-action 'nothing'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    - name: "Ne rien faire quand le capot est rabattu (sur batterie)"
+      ansible.builtin.command: gsettings set org.gnome.settings-daemon.plugins.power lid-close-battery-action 'nothing'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, power]
+
+    # ======================
     # Forcer X11 (désactiver Wayland)
     # ======================
     - name: "Forcer X11 (WaylandEnable=false)"
