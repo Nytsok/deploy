@@ -813,6 +813,29 @@
       tags: [zsh, aliases]
 
     # ======================
+    # SSH – Configuration
+    # ======================
+    - name: "Créer le dossier .ssh si nécessaire"
+      ansible.builtin.file:
+        path: "{{ user_home }}/.ssh"
+        state: directory
+        mode: "0700"
+      tags: [ssh]
+
+    - name: "Créer le fichier de configuration SSH"
+      ansible.builtin.copy:
+        dest: "{{ user_home }}/.ssh/config"
+        mode: "0600"
+        content: |
+          Host *
+              ServerAliveInterval 30
+              ServerAliveCountMax 3
+              TCPKeepAlive yes
+              ConnectTimeout 10
+              ConnectionAttempts 3
+      tags: [ssh]
+
+    # ======================
     # Flameshot – Print Screen
     # ======================
     - name: "Désactiver tous les raccourcis screenshot GNOME"
