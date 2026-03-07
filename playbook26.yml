@@ -23,6 +23,22 @@
 
   tasks:
     # ======================
+    # SUDO – NOPASSWD (doit être la toute première task)
+    # Permet d'exécuter le playbook sans --ask-become-pass.
+    # Pour le premier lancement, utiliser :
+    #   sudo ansible-playbook playbook26.yml
+    # Les lancements suivants fonctionneront sans sudo ni --ask-become-pass.
+    # ======================
+    - name: "Configurer sudo NOPASSWD pour l'utilisateur courant"
+      become: true
+      ansible.builtin.copy:
+        dest: "/etc/sudoers.d/{{ ansible_user_id }}-nopasswd"
+        content: "{{ ansible_user_id }} ALL=(ALL) NOPASSWD: ALL\n"
+        mode: "0440"
+        validate: "visudo -cf %s"
+      tags: [sudo, always]
+
+    # ======================
     # DBUS (pour gsettings)
     # ======================
     - name: "Récupérer l'UID utilisateur"
@@ -354,7 +370,7 @@
     - name: "Configurer les applications favorites dans le dock"
       ansible.builtin.command: >
         gsettings set org.gnome.shell favorite-apps
-        "['org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'google-chrome.desktop',
+        "['org.gnome.Nautilus.desktop', 'gnome-terminal.desktop', 'google-chrome.desktop',
         'mullvad-vpn.desktop', 'cherrytree.desktop', 'org.gnome.TextEditor.desktop',
         'veracrypt.desktop', 'snap-store_snap-store.desktop', 'chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop',
         'chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop', 'chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop',
@@ -474,6 +490,7 @@
           - virt-manager
           - gnome-tweaks
           - gnome-shell-extensions
+          - gnome-terminal
           - mullvad-vpn
         state: present
         update_cache: true
@@ -544,16 +561,27 @@
         enabled: true
       tags: [kvm]
 
-    - name: "Configurer le réseau bridge par défaut"
+    # Suppression de virbr0 – on désactive le réseau default de libvirt
+    # pour éviter la création automatique de l'interface virbr0
+    - name: "Arrêter le réseau virtuel default (virbr0)"
       become: true
-      ansible.builtin.command: virsh net-autostart default
+      ansible.builtin.command: virsh net-destroy default
       failed_when: false
+      changed_when: false
       tags: [kvm]
 
-    - name: "Démarrer le réseau virtuel par défaut"
+    - name: "Désactiver le démarrage automatique du réseau default"
       become: true
-      ansible.builtin.command: virsh net-start default
+      ansible.builtin.command: virsh net-autostart --disable default
       failed_when: false
+      changed_when: false
+      tags: [kvm]
+
+    - name: "Supprimer l'interface virbr0 si elle existe encore"
+      become: true
+      ansible.builtin.command: ip link delete virbr0
+      failed_when: false
+      changed_when: false
       tags: [kvm]
 
     # ======================
@@ -776,6 +804,38 @@
         path: /tmp/balena-etcher.deb
         state: absent
       tags: [etcher]
+
+    # ======================
+    # GNOME Terminal – Terminal par défaut
+    # NOTE : x-terminal-emulator est le système d'alternatives Debian/Ubuntu.
+    # gsettings règle le terminal ouvert par GNOME (ex: clic droit bureau, raccourci).
+    # ======================
+    - name: "Définir gnome-terminal comme terminal par défaut (alternatives)"
+      become: true
+      ansible.builtin.command: update-alternatives --set x-terminal-emulator /usr/bin/gnome-terminal
+      failed_when: false
+      changed_when: false
+      tags: [gnome, terminal]
+
+    - name: "Définir gnome-terminal comme terminal GNOME par défaut (gsettings)"
+      ansible.builtin.command: >
+        gsettings set org.gnome.desktop.default-applications.terminal
+        exec 'gnome-terminal'
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, terminal]
+
+    - name: "Définir les arguments du terminal par défaut (gsettings)"
+      ansible.builtin.command: >
+        gsettings set org.gnome.desktop.default-applications.terminal
+        exec-arg ''
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, terminal]
 
     # ======================
     # ZSH / Oh My Zsh
@@ -1009,10 +1069,10 @@
     - name: "Configurer les applications favorites dans le dock (final)"
       ansible.builtin.command: >
         gsettings set org.gnome.shell favorite-apps
-        "['org.gnome.Nautilus.desktop', 'org.gnome.Terminal.desktop', 'google-chrome.desktop',
+        "['org.gnome.Nautilus.desktop', 'gnome-terminal.desktop', 'google-chrome.desktop',
         'mullvad-vpn.desktop', 'cherrytree.desktop', 'org.gnome.TextEditor.desktop',
         'veracrypt.desktop', 'snap-store_snap-store.desktop', 'chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop',
-        'chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop', 'chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop',
+        'chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop', 'chrome-nfnklejkcmehokldgamdannfigjighke-Default.desktop',
         'chrome-blgdilankhbcpipclgpdndahbehalgkh-Default.desktop', 'chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop',
         'balena-etcher.desktop', 'rpi-imager_rpi-imager.desktop']"
       environment:
