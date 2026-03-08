@@ -773,36 +773,47 @@
 
     # ======================
     # Balena Etcher
-    # NOTE Ubuntu 26 : Balena Etcher disponible via AppImage ou .deb GitHub.
-    # Vérifier la dernière version sur https://github.com/balena-io/etcher/releases
+    # NOTE Ubuntu 26 : le .deb n'est plus compatible (libgdk-pixbuf2.0-0 supprimé).
+    # Installation via AppImage + création d'un .desktop pour l'intégration GNOME.
     # ======================
-    - name: "Vérifier si Balena Etcher est déjà installé"
-      ansible.builtin.command: which balena-etcher
+    - name: "Vérifier si Balena Etcher AppImage est déjà installé"
+      ansible.builtin.stat:
+        path: /opt/balena-etcher/balena-etcher.AppImage
       register: etcher_check
-      failed_when: false
-      changed_when: false
       tags: [etcher]
 
-    - name: "Télécharger Balena Etcher .deb"
-      ansible.builtin.get_url:
-        url: https://github.com/balena-io/etcher/releases/download/v2.1.4/balena-etcher_2.1.4_amd64.deb
-        dest: /tmp/balena-etcher.deb
-        mode: "0644"
-      when: etcher_check.rc != 0
-      tags: [etcher]
-
-    - name: "Installer Balena Etcher"
+    - name: "Créer le dossier /opt/balena-etcher"
       become: true
-      ansible.builtin.apt:
-        deb: /tmp/balena-etcher.deb
-        state: present
-      when: etcher_check.rc != 0
+      ansible.builtin.file:
+        path: /opt/balena-etcher
+        state: directory
+        mode: "0755"
+      when: not etcher_check.stat.exists
       tags: [etcher]
 
-    - name: "Nettoyer le fichier .deb Balena Etcher"
-      ansible.builtin.file:
-        path: /tmp/balena-etcher.deb
-        state: absent
+    - name: "Télécharger Balena Etcher AppImage"
+      become: true
+      ansible.builtin.get_url:
+        url: https://github.com/balena-io/etcher/releases/download/v2.1.4/balenaEtcher-2.1.4-x64.AppImage
+        dest: /opt/balena-etcher/balena-etcher.AppImage
+        mode: "0755"
+      when: not etcher_check.stat.exists
+      tags: [etcher]
+
+    - name: "Créer le fichier .desktop pour Balena Etcher"
+      become: true
+      ansible.builtin.copy:
+        dest: /usr/share/applications/balena-etcher.desktop
+        mode: "0644"
+        content: |
+          [Desktop Entry]
+          Name=Balena Etcher
+          Comment=Flash OS images to SD cards and USB drives
+          Exec=/opt/balena-etcher/balena-etcher.AppImage
+          Icon=balena-etcher
+          Terminal=false
+          Type=Application
+          Categories=Utility;
       tags: [etcher]
 
     # ======================
