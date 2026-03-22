@@ -1,9 +1,8 @@
 ---
-- name: "Ubuntu custom - GNOME + ZSH + X11 + Dark mode + Docker + Exegold + tmux + KVM"
+- name: "Ubuntu custom - GNOME + ZSH + X11 + Dark mode + Docker + Exegold + tmux"
   hosts: localhost
   become: false
   gather_facts: true
-
   vars:
     user_home: "{{ ansible_env.HOME }}"
     zshrc_path: "{{ user_home }}/.zshrc"
@@ -15,18 +14,15 @@
     veracrypt_ubuntu: "24.04"
     balena_etcher_version: "2.1.4"
     terminal_profile_id: "12cb3421-ab18-45fc-b08a-f5ad3b883a35"
-
     # Liste centralisée des raccourcis clavier personnalisés
     custom_keybinding_paths:
       - "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/taskmanager/"
       - "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/"
-
     # Applications favorites du dock (définies une seule fois)
     dock_favorites:
       - org.gnome.Nautilus.desktop
       - org.gnome.Terminal.desktop
       - google-chrome.desktop
-      - virtualbox.desktop
       - mullvad-vpn.desktop
       - cherrytree.desktop
       - org.gnome.TextEditor.desktop
@@ -36,10 +32,9 @@
       - chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop
       - chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop
       - chrome-blgdilankhbcpipclgpdndahbehalgkh-Default.desktop
-      - chrome-cadlkienfkclaiaibeoongdcgmdikeeg-Default.desktop
+      - chrome-cadlkienfkclaiaiaibeoongdcgmdikeeg-Default.desktop
       - balena-etcher.desktop
       - rpi-imager_rpi-imager.desktop
-
     # gsettings groupés pour réduire la duplication
     gnome_power_settings:
       - { schema: "org.gnome.desktop.screensaver", key: "lock-enabled", value: "false" }
@@ -51,40 +46,34 @@
       - { schema: "org.gnome.settings-daemon.plugins.power", key: "idle-dim", value: "false" }
       - { schema: "org.gnome.settings-daemon.plugins.power", key: "power-saver-profile-on-low-battery", value: "false" }
       - { schema: "org.gnome.desktop.session", key: "idle-delay", value: "0" }
-
     zsh_plugins:
       - { name: zsh-syntax-highlighting, repo: "https://github.com/zsh-users/zsh-syntax-highlighting.git" }
       - { name: zsh-completions, repo: "https://github.com/zsh-users/zsh-completions.git" }
       - { name: zsh-autosuggestions, repo: "https://github.com/zsh-users/zsh-autosuggestions.git" }
       - { name: zsh-z, repo: "https://github.com/agkozak/zsh-z.git" }
       - { name: zsh-nvm, repo: "https://github.com/lukechilds/zsh-nvm.git" }
-
   handlers:
     - name: reboot_system
       become: true
       ansible.builtin.command: shutdown -r +1 "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
       async: 1
       poll: 0
-
     - name: restart_networkmanager
       become: true
       ansible.builtin.systemd:
         name: NetworkManager
         state: restarted
-
     - name: restart_systemd_resolved
       become: true
       ansible.builtin.systemd:
         name: systemd-resolved
         state: restarted
-
     - name: restart_docker
       become: true
       ansible.builtin.systemd:
         name: docker
         state: restarted
         daemon_reload: true
-
   tasks:
     # ======================
     # DBUS (pour gsettings)
@@ -94,12 +83,10 @@
       register: uid_cmd
       changed_when: false
       tags: [always]
-
     - name: "Définir DBUS_SESSION_BUS_ADDRESS"
       ansible.builtin.set_fact:
         dbus_addr: "unix:path=/run/user/{{ uid_cmd.stdout }}/bus"
       tags: [always]
-
     # ======================
     # GNOME – Désactiver verrouillage et veille automatique
     # ======================
@@ -114,7 +101,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, power]
-
     # ======================
     # Systemd – Configuration capot laptop
     # ======================
@@ -133,7 +119,6 @@
         label: "{{ item.key }}"
       notify: reboot_system
       tags: [system, power]
-
     # ======================
     # Forcer X11 (désactiver Wayland)
     # ======================
@@ -147,7 +132,6 @@
         backup: true
       notify: reboot_system
       tags: [system, x11]
-
     # ======================
     # GNOME – Dark Mode
     # ======================
@@ -158,7 +142,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, appearance]
-
     - name: "Forcer thème GTK sombre"
       ansible.builtin.command: gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark'
       environment:
@@ -166,7 +149,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, appearance]
-
     # ======================
     # GNOME Terminal – Couleurs personnalisées
     # ======================
@@ -174,7 +156,6 @@
       ansible.builtin.shell: |
         PROFILE_ID="{{ terminal_profile_id }}"
         PROFILE_PATH="/org/gnome/terminal/legacy/profiles:/:$PROFILE_ID"
-
         # Ajouter le profil à la liste s'il n'existe pas
         current_list=$(dconf read /org/gnome/terminal/legacy/profiles:/list)
         if [[ ! "$current_list" =~ "$PROFILE_ID" ]]; then
@@ -185,10 +166,8 @@
             dconf write /org/gnome/terminal/legacy/profiles:/list "$new_list"
           fi
         fi
-
         # Définir comme profil par défaut
         dconf write /org/gnome/terminal/legacy/profiles:/default "'$PROFILE_ID'"
-
         # Appliquer les couleurs
         dconf write $PROFILE_PATH/visible-name "'perso'"
         dconf write $PROFILE_PATH/use-theme-colors "false"
@@ -205,13 +184,11 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       changed_when: false
       tags: [gnome, terminal]
-
     - name: "Vérifier si le fichier de couleurs existe"
       ansible.builtin.stat:
         path: "{{ terminal_colors_file }}"
       register: terminal_colors_stat
       tags: [gnome, terminal]
-
     - name: "Importer les couleurs du terminal"
       ansible.builtin.shell: |
         dconf load /org/gnome/terminal/legacy/profiles:/ < {{ terminal_colors_file }}
@@ -220,13 +197,11 @@
       when: terminal_colors_stat.stat.exists
       changed_when: false
       tags: [gnome, terminal]
-
     - name: "Afficher un message si le fichier de couleurs est absent"
       ansible.builtin.debug:
         msg: "Fichier {{ terminal_colors_file }} non trouvé. Couleurs par défaut conservées."
       when: not terminal_colors_stat.stat.exists
       tags: [gnome, terminal]
-
     # ======================
     # GNOME – Dock
     # ======================
@@ -237,7 +212,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, dock]
-
     - name: "Mettre Show Apps en haut du dock"
       ansible.builtin.command: gsettings set org.gnome.shell.extensions.dash-to-dock show-apps-at-top true
       environment:
@@ -245,7 +219,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, dock]
-
     # ======================
     # GNOME – Afficher fichiers cachés
     # ======================
@@ -261,7 +234,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, files]
-
     # ======================
     # GNOME – Raccourcis clavier personnalisés
     # ======================
@@ -272,7 +244,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, shortcuts]
-
     - name: "Désactiver tous les raccourcis screenshot GNOME"
       ansible.builtin.command: "gsettings set org.gnome.shell.keybindings {{ item }} '[]'"
       environment:
@@ -284,7 +255,6 @@
       failed_when: false
       changed_when: false
       tags: [gnome, flameshot]
-
     - name: "Enregistrer la liste des raccourcis clavier personnalisés"
       ansible.builtin.command: >
         gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings
@@ -293,7 +263,6 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       changed_when: false
       tags: [gnome, shortcuts]
-
     - name: "Configurer raccourci Ctrl+Alt+Delete pour Moniteur système"
       ansible.builtin.command: >
         gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/taskmanager/
@@ -308,7 +277,6 @@
         label: "{{ item.key }}"
       changed_when: false
       tags: [gnome, shortcuts]
-
     - name: "Configurer Flameshot sur Print Screen"
       ansible.builtin.command: >
         gsettings set org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/flameshot/
@@ -323,7 +291,6 @@
         label: "{{ item.key }}"
       changed_when: false
       tags: [gnome, flameshot]
-
     # ======================
     # APT – Dépôts externes + upgrade + paquets
     # ======================
@@ -334,7 +301,6 @@
         dest: /usr/share/keyrings/mullvad-keyring.asc
         mode: "0644"
       tags: [apt, mullvad]
-
     - name: "Ajouter dépôt Mullvad VPN"
       become: true
       ansible.builtin.copy:
@@ -342,7 +308,6 @@
         content: "deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch={{ ansible_architecture | regex_replace('x86_64', 'amd64') }}] https://repository.mullvad.net/deb/stable stable main\n"
         mode: "0644"
       tags: [apt, mullvad]
-
     - name: "Ajouter clé GPG Cloudflare"
       become: true
       ansible.builtin.get_url:
@@ -350,7 +315,6 @@
         dest: /usr/share/keyrings/cloudflare-public-v2.gpg
         mode: "0644"
       tags: [cloudflared]
-
     - name: "Ajouter dépôt Cloudflared"
       become: true
       ansible.builtin.copy:
@@ -358,14 +322,12 @@
         content: "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main\n"
         mode: "0644"
       tags: [cloudflared]
-
     - name: "Full upgrade système (inclut mise à jour du cache)"
       become: true
       ansible.builtin.apt:
         upgrade: full
         update_cache: true
       tags: [apt, upgrade]
-
     - name: "Installer paquets système"
       become: true
       ansible.builtin.apt:
@@ -398,18 +360,12 @@
           - file-roller
           - deja-dup
           - net-tools
-          - qemu-kvm
-          - libvirt-daemon-system
-          - libvirt-clients
-          - bridge-utils
-          - virt-manager
           - gnome-tweaks
           - gnome-shell-extensions
           - mullvad-vpn
           - cloudflared
         state: present
       tags: [apt, packages]
-
     # ======================
     # Google Chrome
     # ======================
@@ -419,7 +375,6 @@
       failed_when: false
       changed_when: false
       tags: [chrome]
-
     - name: "Télécharger Google Chrome .deb"
       ansible.builtin.get_url:
         url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
@@ -427,7 +382,6 @@
         mode: "0644"
       when: chrome_check.rc != 0
       tags: [chrome]
-
     - name: "Installer Google Chrome"
       become: true
       ansible.builtin.apt:
@@ -435,13 +389,11 @@
         state: present
       when: chrome_check.rc != 0
       tags: [chrome]
-
     - name: "Nettoyer le fichier .deb Google Chrome"
       ansible.builtin.file:
         path: /tmp/google-chrome.deb
         state: absent
       tags: [chrome]
-
     # ======================
     # VeraCrypt
     # ======================
@@ -451,7 +403,6 @@
       failed_when: false
       changed_when: false
       tags: [veracrypt]
-
     - name: "Télécharger VeraCrypt .deb"
       ansible.builtin.get_url:
         url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-Ubuntu-{{ veracrypt_ubuntu }}-amd64.deb"
@@ -459,7 +410,6 @@
         mode: "0644"
       when: veracrypt_check.rc != 0
       tags: [veracrypt]
-
     - name: "Installer VeraCrypt"
       become: true
       ansible.builtin.apt:
@@ -467,13 +417,11 @@
         state: present
       when: veracrypt_check.rc != 0
       tags: [veracrypt]
-
     - name: "Nettoyer le fichier .deb VeraCrypt"
       ansible.builtin.file:
         path: /tmp/veracrypt.deb
         state: absent
       tags: [veracrypt]
-
     # ======================
     # Balena Etcher
     # ======================
@@ -483,7 +431,6 @@
       failed_when: false
       changed_when: false
       tags: [etcher]
-
     - name: "Télécharger Balena Etcher .deb"
       ansible.builtin.get_url:
         url: "https://github.com/balena-io/etcher/releases/download/v{{ balena_etcher_version }}/balena-etcher_{{ balena_etcher_version }}_amd64.deb"
@@ -491,7 +438,6 @@
         mode: "0644"
       when: etcher_check.rc != 0
       tags: [etcher]
-
     - name: "Installer Balena Etcher"
       become: true
       ansible.builtin.apt:
@@ -499,59 +445,11 @@
         state: present
       when: etcher_check.rc != 0
       tags: [etcher]
-
     - name: "Nettoyer le fichier .deb Balena Etcher"
       ansible.builtin.file:
         path: /tmp/balena-etcher.deb
         state: absent
       tags: [etcher]
-
-    # ======================
-    # KVM / QEMU / libvirt
-    # ======================
-    - name: "Ajouter l'utilisateur aux groupes KVM et libvirt"
-      become: true
-      ansible.builtin.user:
-        name: "{{ ansible_user_id }}"
-        groups:
-          - kvm
-          - libvirt
-        append: true
-      notify: reboot_system
-      tags: [kvm]
-
-    - name: "Démarrer et activer libvirtd"
-      become: true
-      ansible.builtin.systemd:
-        name: libvirtd
-        state: started
-        enabled: true
-      tags: [kvm]
-
-    - name: "Vérifier si le réseau default est actif"
-      become: true
-      ansible.builtin.command: virsh net-info default
-      register: virsh_net_info
-      failed_when: false
-      changed_when: false
-      tags: [kvm]
-
-    - name: "Configurer le réseau bridge par défaut"
-      become: true
-      ansible.builtin.command: virsh net-autostart default
-      when: virsh_net_info.rc == 0
-      changed_when: "'already' not in virsh_net_info.stdout | default('')"
-      failed_when: false
-      tags: [kvm]
-
-    - name: "Démarrer le réseau virtuel par défaut"
-      become: true
-      ansible.builtin.command: virsh net-start default
-      when: virsh_net_info.rc == 0 and 'inactive' in virsh_net_info.stdout | default('')
-      failed_when: false
-      changed_when: true
-      tags: [kvm]
-
     # ======================
     # Supprimer CUPS
     # ======================
@@ -567,7 +465,6 @@
         - cups-browsed.service
       failed_when: false
       tags: [cups, cleanup]
-
     - name: "Supprimer CUPS (service d'impression)"
       become: true
       ansible.builtin.apt:
@@ -578,7 +475,6 @@
         state: absent
         purge: true
       tags: [cups, cleanup]
-
     # ======================
     # NetworkManager – Désactiver envoi hostname DHCP
     # ======================
@@ -595,7 +491,6 @@
         mode: "0644"
       notify: restart_networkmanager
       tags: [networkmanager, privacy]
-
     # ======================
     # Désactiver avahi-daemon
     # ======================
@@ -611,7 +506,6 @@
         - avahi-daemon.socket
       failed_when: false
       tags: [avahi, privacy]
-
     # ======================
     # systemd-resolved – Configuration DNS
     # ======================
@@ -626,7 +520,6 @@
         backup: true
       notify: restart_systemd_resolved
       tags: [dns, systemd]
-
     - name: "Configurer resolv.conf comme lien symbolique"
       become: true
       ansible.builtin.file:
@@ -635,7 +528,6 @@
         state: link
         force: true
       tags: [dns, systemd]
-
     # ======================
     # Docker
     # ======================
@@ -645,7 +537,6 @@
       failed_when: false
       changed_when: false
       tags: [docker]
-
     - name: "Installer les prérequis Docker"
       become: true
       ansible.builtin.apt:
@@ -655,7 +546,6 @@
         state: present
       when: docker_check.rc != 0
       tags: [docker]
-
     - name: "Ajouter clé GPG Docker"
       become: true
       ansible.builtin.get_url:
@@ -664,7 +554,6 @@
         mode: "0644"
       when: docker_check.rc != 0
       tags: [docker]
-
     - name: "Ajouter dépôt Docker"
       become: true
       ansible.builtin.copy:
@@ -673,7 +562,6 @@
         mode: "0644"
       when: docker_check.rc != 0
       tags: [docker]
-
     - name: "Installer Docker Engine"
       become: true
       ansible.builtin.apt:
@@ -688,7 +576,6 @@
       when: docker_check.rc != 0
       notify: reboot_system
       tags: [docker]
-
     - name: "Ajouter l'utilisateur au groupe docker"
       become: true
       ansible.builtin.user:
@@ -697,7 +584,6 @@
         append: true
       notify: reboot_system
       tags: [docker]
-
     - name: "Configurer Docker pour désactiver le bridge docker0"
       become: true
       ansible.builtin.copy:
@@ -710,7 +596,6 @@
         mode: "0644"
       notify: restart_docker
       tags: [docker]
-
     - name: "Supprimer l'interface docker0 si elle existe"
       become: true
       ansible.builtin.command: ip link delete docker0
@@ -718,7 +603,6 @@
       failed_when: false
       changed_when: docker0_delete.rc == 0
       tags: [docker, cleanup]
-
     # ======================
     # ZSH / Oh My Zsh
     # ======================
@@ -728,13 +612,11 @@
         name: "{{ ansible_user_id }}"
         shell: /usr/bin/zsh
       tags: [zsh]
-
     - name: "Vérifier Oh My Zsh"
       ansible.builtin.stat:
         path: "{{ omz_dir }}"
       register: omz_stat
       tags: [zsh]
-
     - name: "Installer Oh My Zsh"
       ansible.builtin.shell: |
         RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
@@ -743,7 +625,6 @@
         executable: /bin/bash
       when: not omz_stat.stat.exists
       tags: [zsh]
-
     - name: "Forcer le thème gentoo"
       ansible.builtin.lineinfile:
         path: "{{ zshrc_path }}"
@@ -751,7 +632,6 @@
         line: 'ZSH_THEME="gentoo"'
         create: true
       tags: [zsh]
-
     # ======================
     # Oh My Zsh – Plugins
     # ======================
@@ -765,7 +645,6 @@
       loop_control:
         label: "{{ item.name }}"
       tags: [zsh, plugins]
-
     - name: "Ajouter zsh-completions au fpath"
       ansible.builtin.blockinfile:
         path: "{{ zshrc_path }}"
@@ -774,7 +653,6 @@
         block: |
           fpath+=${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/zsh-completions/src
       tags: [zsh, plugins]
-
     - name: "Configurer plugins ZSH"
       ansible.builtin.lineinfile:
         path: "{{ zshrc_path }}"
@@ -782,7 +660,6 @@
         line: 'plugins=(zsh-syntax-highlighting zsh-completions zsh-autosuggestions tmux fzf zsh-z zsh-nvm)'
         create: true
       tags: [zsh, plugins]
-
     # ======================
     # ZSH – Aliases utiles
     # ======================
@@ -796,32 +673,25 @@
           alias meminfo='free -m -l -t'
           alias psmem='ps auxf | sort -nr -k 4 | head -10'
           alias pscpu='ps auxf | sort -nr -k 3 | head -10'
-
           # Réseau
           alias myip='curl ifconfig.me'
           alias speed='speedtest-cli'
-
           # Téléchargement
           alias wget='wget -c'
-
           # Disque
           alias df='df -H'
           alias du='du -ch'
-
           # APT
           alias update='sudo apt update && sudo apt full-upgrade -y'
           alias cleanup='sudo apt autoremove -y && sudo apt autoclean'
-
           # Navigation
           alias ll='ls -lah'
           alias la='ls -A'
           alias l='ls -CF'
-
           # Sécurité
           alias chmod-files='find . -type f -exec chmod 644 {} \;'
           alias chmod-dirs='find . -type d -exec chmod 755 {} \;'
       tags: [zsh, aliases]
-
     # ======================
     # SSH – Configuration
     # ======================
@@ -831,7 +701,6 @@
         state: directory
         mode: "0700"
       tags: [ssh]
-
     - name: "Créer le fichier de configuration SSH"
       ansible.builtin.copy:
         dest: "{{ user_home }}/.ssh/config"
@@ -845,7 +714,6 @@
               ConnectTimeout 10
               ConnectionAttempts 3
       tags: [ssh]
-
     # ======================
     # Exegold
     # ======================
@@ -855,19 +723,16 @@
         dest: "{{ exegold_dir }}"
         update: true
       tags: [exegold]
-
     - name: "Créer venv pour Exegold"
       ansible.builtin.command: python3 -m venv {{ exegold_venv }}
       args:
         creates: "{{ exegold_venv }}"
       tags: [exegold]
-
     - name: "Installer requirements Exegold dans venv"
       ansible.builtin.pip:
         requirements: "{{ exegold_dir }}/requirements.txt"
         virtualenv: "{{ exegold_venv }}"
       tags: [exegold]
-
     - name: "Créer script wrapper exegol"
       become: true
       ansible.builtin.copy:
@@ -877,7 +742,6 @@
           #!/bin/bash
           {{ exegold_venv }}/bin/python {{ exegold_dir }}/exegol.py "$@"
       tags: [exegold]
-
     # ======================
     # GNOME – Applications favorites dans le dock
     # ======================
@@ -889,19 +753,16 @@
       failed_when: false
       changed_when: false
       tags: [gnome, dock]
-
     # ======================
     # Reboot
     # ======================
     - name: "Appliquer les handlers en attente"
       ansible.builtin.meta: flush_handlers
       tags: [reboot]
-
     - name: "Attendre confirmation avant reboot"
       ansible.builtin.pause:
         prompt: "Le système va redémarrer dans 1 minute. Appuyez sur Entrée pour continuer ou Ctrl+C puis 'A' pour annuler le reboot"
       tags: [reboot]
-
     - name: "Message final"
       ansible.builtin.debug:
         msg: "Configuration terminée ! Le système redémarrera dans 1 minute si des changements l'exigent."
