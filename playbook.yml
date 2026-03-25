@@ -10,8 +10,6 @@
     exegold_dir: "{{ user_home }}/Exegold"
     exegold_venv: "{{ exegold_dir }}/venv"
     terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"
-    veracrypt_version: "1.26.24"
-    veracrypt_ubuntu: "24.04"
     balena_etcher_version: "2.1.4"
     terminal_profile_id: "12cb3421-ab18-45fc-b08a-f5ad3b883a35"
     # Liste centralisée des raccourcis clavier personnalisés
@@ -23,10 +21,8 @@
       - org.gnome.Nautilus.desktop
       - org.gnome.Terminal.desktop
       - google-chrome.desktop
-      - mullvad-vpn.desktop
       - cherrytree.desktop
       - org.gnome.TextEditor.desktop
-      - veracrypt.desktop
       - snap-store_snap-store.desktop
       - chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop
       - chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop
@@ -292,36 +288,8 @@
       changed_when: false
       tags: [gnome, flameshot]
     # ======================
-    # APT – Dépôts externes + upgrade + paquets
+    # APT – Upgrade + paquets
     # ======================
-    - name: "Ajouter clé Mullvad VPN"
-      become: true
-      ansible.builtin.get_url:
-        url: https://repository.mullvad.net/deb/mullvad-keyring.asc
-        dest: /usr/share/keyrings/mullvad-keyring.asc
-        mode: "0644"
-      tags: [apt, mullvad]
-    - name: "Ajouter dépôt Mullvad VPN"
-      become: true
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/mullvad.list
-        content: "deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch={{ ansible_architecture | regex_replace('x86_64', 'amd64') }}] https://repository.mullvad.net/deb/stable stable main\n"
-        mode: "0644"
-      tags: [apt, mullvad]
-    - name: "Ajouter clé GPG Cloudflare"
-      become: true
-      ansible.builtin.get_url:
-        url: https://pkg.cloudflare.com/cloudflare-public-v2.gpg
-        dest: /usr/share/keyrings/cloudflare-public-v2.gpg
-        mode: "0644"
-      tags: [cloudflared]
-    - name: "Ajouter dépôt Cloudflared"
-      become: true
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/cloudflared.list
-        content: "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main\n"
-        mode: "0644"
-      tags: [cloudflared]
     - name: "Full upgrade système (inclut mise à jour du cache)"
       become: true
       ansible.builtin.apt:
@@ -362,8 +330,6 @@
           - net-tools
           - gnome-tweaks
           - gnome-shell-extensions
-          - mullvad-vpn
-          - cloudflared
         state: present
       tags: [apt, packages]
     # ======================
@@ -394,34 +360,6 @@
         path: /tmp/google-chrome.deb
         state: absent
       tags: [chrome]
-    # ======================
-    # VeraCrypt
-    # ======================
-    - name: "Vérifier si VeraCrypt est installé"
-      ansible.builtin.command: dpkg -s veracrypt
-      register: veracrypt_check
-      failed_when: false
-      changed_when: false
-      tags: [veracrypt]
-    - name: "Télécharger VeraCrypt .deb"
-      ansible.builtin.get_url:
-        url: "https://launchpad.net/veracrypt/trunk/{{ veracrypt_version }}/+download/veracrypt-{{ veracrypt_version }}-Ubuntu-{{ veracrypt_ubuntu }}-amd64.deb"
-        dest: /tmp/veracrypt.deb
-        mode: "0644"
-      when: veracrypt_check.rc != 0
-      tags: [veracrypt]
-    - name: "Installer VeraCrypt"
-      become: true
-      ansible.builtin.apt:
-        deb: /tmp/veracrypt.deb
-        state: present
-      when: veracrypt_check.rc != 0
-      tags: [veracrypt]
-    - name: "Nettoyer le fichier .deb VeraCrypt"
-      ansible.builtin.file:
-        path: /tmp/veracrypt.deb
-        state: absent
-      tags: [veracrypt]
     # ======================
     # Balena Etcher
     # ======================
