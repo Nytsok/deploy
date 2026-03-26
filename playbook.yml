@@ -414,6 +414,18 @@
         purge: true
       tags: [cups, cleanup]
     # ======================
+    # Supprimer ibus
+    # ======================
+    - name: "Supprimer ibus"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - ibus
+        state: absent
+        purge: true
+        autoremove: true
+      tags: [ibus, cleanup]
+    # ======================
     # NetworkManager – Désactiver envoi hostname DHCP
     # ======================
     - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
