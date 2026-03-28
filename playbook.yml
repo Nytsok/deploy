@@ -331,6 +331,9 @@
           - gnome-tweaks
           - gnome-shell-extensions
           - bettercap
+          - proxychains4
+          - pipx
+          - htop
         state: present
       tags: [apt, packages]
     # ======================
@@ -427,6 +430,18 @@
         autoremove: true
       tags: [ibus, cleanup]
     # ======================
+    # Désactiver UFW en permanence
+    # ======================
+    - name: "Désactiver et masquer UFW"
+      become: true
+      ansible.builtin.systemd:
+        name: ufw
+        state: stopped
+        enabled: false
+        masked: true
+      failed_when: false
+      tags: [ufw, cleanup]
+    # ======================
     # NetworkManager – Désactiver envoi hostname DHCP
     # ======================
     - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
@@ -457,6 +472,17 @@
         - net.ipv4.ip_forward
         - net.ipv6.conf.all.forwarding
       tags: [network, forwarding]
+    # ======================
+    # Proxychains – Changer port SOCKS par défaut
+    # ======================
+    - name: "Changer le port SOCKS de proxychains de 9050 à 1080"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/proxychains4.conf
+        regexp: '^socks[45]\s+127\.0\.0\.1\s+9050'
+        line: 'socks5 127.0.0.1 1080'
+        backup: true
+      tags: [proxychains, network]
     # ======================
     # Désactiver avahi-daemon
     # ======================
