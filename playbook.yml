@@ -442,6 +442,26 @@
       failed_when: false
       tags: [ufw, cleanup]
     # ======================
+    # Désactiver unattended-upgrades
+    # ======================
+    - name: "Arrêter et désactiver unattended-upgrades"
+      become: true
+      ansible.builtin.systemd:
+        name: unattended-upgrades
+        state: stopped
+        enabled: false
+        masked: true
+      failed_when: false
+      tags: [unattended-upgrades, cleanup]
+    - name: "Supprimer unattended-upgrades"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - unattended-upgrades
+        state: absent
+        purge: true
+      tags: [unattended-upgrades, cleanup]
+    # ======================
     # NetworkManager – Désactiver envoi hostname DHCP
     # ======================
     - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
