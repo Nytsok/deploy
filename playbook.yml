@@ -330,6 +330,7 @@
           - net-tools
           - gnome-tweaks
           - gnome-shell-extensions
+          - bettercap
         state: present
       tags: [apt, packages]
     # ======================
@@ -441,6 +442,21 @@
         mode: "0644"
       notify: restart_networkmanager
       tags: [networkmanager, privacy]
+    # ======================
+    # Activer IP forwarding (IPv4 + IPv6)
+    # ======================
+    - name: "Activer IP forwarding (persistant)"
+      become: true
+      ansible.builtin.sysctl:
+        name: "{{ item }}"
+        value: "1"
+        sysctl_set: true
+        state: present
+        reload: true
+      loop:
+        - net.ipv4.ip_forward
+        - net.ipv6.conf.all.forwarding
+      tags: [network, forwarding]
     # ======================
     # Désactiver avahi-daemon
     # ======================
