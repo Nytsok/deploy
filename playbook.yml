@@ -628,6 +628,36 @@
         append: true
       notify: reboot_system
       tags: [docker]
+    # ======================
+    # VirtualBox Guest Additions
+    # ======================
+    - name: "Installer les prérequis Guest Additions"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - build-essential
+          - dkms
+          - linux-headers-{{ ansible_kernel }}
+        state: present
+      tags: [virtualbox]
+    - name: "Installer VirtualBox Guest Additions"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - virtualbox-guest-utils
+          - virtualbox-guest-dkms
+        state: present
+      notify: reboot_system
+      tags: [virtualbox]
+    - name: "Ajouter l'utilisateur au groupe vboxsf"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        groups: vboxsf
+        append: true
+      failed_when: false
+      notify: reboot_system
+      tags: [virtualbox]
     - name: "Configurer Docker pour désactiver le bridge docker0"
       become: true
       ansible.builtin.copy:
