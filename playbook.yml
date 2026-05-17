@@ -337,6 +337,38 @@
         state: present
       tags: [apt, packages]
     # ======================
+    # LibreOffice – Forcer le français (interface + correcteur)
+    # ======================
+    - name: "Créer le dossier de configuration LibreOffice"
+      ansible.builtin.file:
+        path: "{{ user_home }}/.config/libreoffice/4/user/registrymodifications.xcu"
+        state: absent
+      tags: [libreoffice]
+    - name: "S'assurer que le dossier config LibreOffice existe"
+      ansible.builtin.file:
+        path: "{{ user_home }}/.config/libreoffice/4/user"
+        state: directory
+        mode: "0755"
+      tags: [libreoffice]
+    - name: "Configurer LibreOffice en français"
+      ansible.builtin.copy:
+        dest: "{{ user_home }}/.config/libreoffice/4/user/registrymodifications.xcu"
+        mode: "0644"
+        force: false
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <item oor:path="/org.openoffice.Office.Linguistic/General"><prop oor:name="DefaultLocale" oor:op="fuse"><value>fr-FR</value></prop></item>
+            <item oor:path="/org.openoffice.Office.Linguistic/General"><prop oor:name="DefaultLocale_CJK" oor:op="fuse"><value></value></prop></item>
+            <item oor:path="/org.openoffice.Office.Linguistic/General"><prop oor:name="DefaultLocale_CTL" oor:op="fuse"><value></value></prop></item>
+            <item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooLocale" oor:op="fuse"><value>fr</value></prop></item>
+            <item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooSetupSystemLocale" oor:op="fuse"><value>fr-FR</value></prop></item>
+            <item oor:path="/org.openoffice.Office.Linguistic/ServiceManager/SpellCheckerList"><prop oor:name="org.openoffice.lingu.MySpellSpellChecker" oor:op="fuse"><value><it>fr-FR</it></value></prop></item>
+            <item oor:path="/org.openoffice.Office.Linguistic/ServiceManager/HyphenatorList"><prop oor:name="org.openoffice.lingu.LibHnjHyphenator" oor:op="fuse"><value><it>fr-FR</it></value></prop></item>
+            <item oor:path="/org.openoffice.Office.Linguistic/ServiceManager/ThesaurusList"><prop oor:name="org.openoffice.lingu.new.Thesaurus" oor:op="fuse"><value><it>fr-FR</it></value></prop></item>
+          </oor:items>
+      tags: [libreoffice]
+    # ======================
     # Google Chrome
     # ======================
     - name: "Vérifier si Google Chrome est installé"
