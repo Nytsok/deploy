@@ -673,8 +673,16 @@
       notify: reboot_system
       tags: [docker]
     # ======================
-    # VirtualBox Guest Additions
+    # VirtualBox Guest Additions (uniquement si exécution dans une VM VirtualBox)
     # ======================
+    - name: "Détecter si on est dans une VM VirtualBox"
+      ansible.builtin.set_fact:
+        is_virtualbox_vm: "{{ ansible_virtualization_type == 'virtualbox' or ansible_system_vendor == 'innotek GmbH' or 'VirtualBox' in (ansible_product_name | default('')) }}"
+      tags: [virtualbox]
+    - name: "Afficher la détection VirtualBox"
+      ansible.builtin.debug:
+        msg: "Environnement VirtualBox détecté : {{ is_virtualbox_vm }}"
+      tags: [virtualbox]
     - name: "Installer les prérequis Guest Additions"
       become: true
       ansible.builtin.apt:
@@ -683,14 +691,16 @@
           - dkms
           - linux-headers-{{ ansible_kernel }}
         state: present
+      when: is_virtualbox_vm
       tags: [virtualbox]
     - name: "Installer VirtualBox Guest Additions"
       become: true
       ansible.builtin.apt:
         name:
           - virtualbox-guest-utils
-          - virtualbox-guest-dkms
+          - virtualbox-guest-x11
         state: present
+      when: is_virtualbox_vm
       notify: reboot_system
       tags: [virtualbox]
     - name: "Ajouter l'utilisateur au groupe vboxsf"
@@ -699,6 +709,7 @@
         name: "{{ ansible_user_id }}"
         groups: vboxsf
         append: true
+      when: is_virtualbox_vm
       failed_when: false
       notify: reboot_system
       tags: [virtualbox]
