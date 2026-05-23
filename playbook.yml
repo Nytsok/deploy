@@ -334,6 +334,7 @@
           - proxychains4
           - pipx
           - htop
+          - ethtool
         state: present
       tags: [apt, packages]
     # ======================
@@ -509,6 +510,49 @@
         mode: "0644"
       notify: restart_networkmanager
       tags: [networkmanager, privacy]
+    # ======================
+    # NetworkManager – Désactiver le power save WiFi
+    # ======================
+    - name: "Désactiver le power save WiFi (persistant via NetworkManager)"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/01-disable-wifi-powersave.conf
+        content: |
+          [connection]
+          wifi.powersave = 2
+        mode: "0644"
+      notify: restart_networkmanager
+      tags: [networkmanager, wifi]
+    # ======================
+    # Ethernet – Désactiver EEE / power save via udev + ethtool
+    # ======================
+    - name: "Créer règle udev pour désactiver EEE et power save sur Ethernet"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/udev/rules.d/70-disable-ethernet-powersave.rules
+        content: |
+          # Désactiver EEE (Energy Efficient Ethernet) et power save sur toutes les interfaces filaires
+          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/usr/sbin/ethtool --set-eee %k eee off"
+          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/usr/sbin/ethtool -s %k wol d"
+        mode: "0644"
+      tags: [ethernet, network]
+    - name: "Recharger les règles udev"
+      become: true
+      ansible.builtin.command: udevadm control --reload-rules
+      changed_when: false
+      tags: [ethernet, network]
+    - name: "Appliquer immédiatement aux interfaces Ethernet déjà présentes"
+      become: true
+      ansible.builtin.shell: |
+        for iface in $(ls /sys/class/net/ | grep -E '^(en|eth)'); do
+          /usr/sbin/ethtool --set-eee "$iface" eee off 2>/dev/null || true
+          /usr/sbin/ethtool -s "$iface" wol d 2>/dev/null || true
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+      tags: [ethernet, network]
     # ======================
     # Activer IP forwarding (IPv4 + IPv6)
     # ======================
