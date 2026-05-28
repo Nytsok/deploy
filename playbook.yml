@@ -24,11 +24,6 @@
       - cherrytree.desktop
       - org.gnome.TextEditor.desktop
       - snap-store_snap-store.desktop
-      - chrome-faolnafnngnfdaknnbpnkhgohbobgegn-Default.desktop
-      - chrome-cifhbcnohmdccbgoicgdjpfamggdegmo-Default.desktop
-      - chrome-nfnklejkcmehokldgamdamnfigjighke-Default.desktop
-      - chrome-blgdilankhbcpipclgpdndahbehalgkh-Default.desktop
-      - chrome-cadlkienfkclaiaiaibeoongdcgmdikeeg-Default.desktop
       - balena-etcher.desktop
       - rpi-imager_rpi-imager.desktop
     # gsettings groupés pour réduire la duplication
@@ -72,16 +67,21 @@
         daemon_reload: true
   tasks:
     # ======================
-    # DBUS (pour gsettings)
+    # DBUS (pour gsettings) + détection environnement graphique
     # ======================
-    - name: "Récupérer l'UID utilisateur"
-      ansible.builtin.command: id -u
-      register: uid_cmd
-      changed_when: false
-      tags: [always]
     - name: "Définir DBUS_SESSION_BUS_ADDRESS"
       ansible.builtin.set_fact:
-        dbus_addr: "unix:path=/run/user/{{ uid_cmd.stdout }}/bus"
+        dbus_addr: "unix:path=/run/user/{{ ansible_user_uid }}/bus"
+      tags: [always]
+    - name: "Détecter la présence de GNOME (gsettings)"
+      ansible.builtin.command: which gsettings
+      register: gsettings_check
+      failed_when: false
+      changed_when: false
+      tags: [always]
+    - name: "Définir has_gnome"
+      ansible.builtin.set_fact:
+        has_gnome: "{{ gsettings_check.rc == 0 }}"
       tags: [always]
     # ======================
     # GNOME – Désactiver verrouillage et veille automatique
@@ -96,6 +96,7 @@
         label: "{{ item.schema }} {{ item.key }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, power]
     # ======================
     # Systemd – Configuration capot laptop
@@ -137,6 +138,7 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, appearance]
     - name: "Forcer thème GTK sombre"
       ansible.builtin.command: gsettings set org.gnome.desktop.interface gtk-theme 'Yaru-dark'
@@ -144,6 +146,7 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, appearance]
     # ======================
     # GNOME – Désactiver les sons système
@@ -160,6 +163,7 @@
         label: "{{ item.schema }} {{ item.key }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, sound]
     # ======================
     # GNOME Terminal – Couleurs personnalisées
@@ -195,24 +199,26 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       changed_when: false
+      when: has_gnome
       tags: [gnome, terminal]
     - name: "Vérifier si le fichier de couleurs existe"
       ansible.builtin.stat:
         path: "{{ terminal_colors_file }}"
       register: terminal_colors_stat
+      when: has_gnome
       tags: [gnome, terminal]
     - name: "Importer les couleurs du terminal"
       ansible.builtin.shell: |
         dconf load /org/gnome/terminal/legacy/profiles:/ < {{ terminal_colors_file }}
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
-      when: terminal_colors_stat.stat.exists
+      when: has_gnome and terminal_colors_stat.stat.exists
       changed_when: false
       tags: [gnome, terminal]
     - name: "Afficher un message si le fichier de couleurs est absent"
       ansible.builtin.debug:
         msg: "Fichier {{ terminal_colors_file }} non trouvé. Couleurs par défaut conservées."
-      when: not terminal_colors_stat.stat.exists
+      when: has_gnome and not terminal_colors_stat.stat.exists
       tags: [gnome, terminal]
     # ======================
     # GNOME – Dock
@@ -223,6 +229,7 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, dock]
     - name: "Mettre Show Apps en haut du dock"
       ansible.builtin.command: gsettings set org.gnome.shell.extensions.dash-to-dock show-apps-at-top true
@@ -230,6 +237,7 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, dock]
     # ======================
     # GNOME – Afficher fichiers cachés
@@ -245,6 +253,7 @@
         label: "{{ item.schema }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, files]
     # ======================
     # GNOME – Raccourcis clavier personnalisés
@@ -255,6 +264,7 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, shortcuts]
     - name: "Désactiver tous les raccourcis screenshot GNOME"
       ansible.builtin.command: "gsettings set org.gnome.shell.keybindings {{ item }} '[]'"
@@ -266,6 +276,7 @@
         - screenshot-window
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, flameshot]
     - name: "Enregistrer la liste des raccourcis clavier personnalisés"
       ansible.builtin.command: >
@@ -274,6 +285,7 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       changed_when: false
+      when: has_gnome
       tags: [gnome, shortcuts]
     - name: "Configurer raccourci Ctrl+Alt+Delete pour Moniteur système"
       ansible.builtin.command: >
@@ -288,6 +300,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
+      when: has_gnome
       tags: [gnome, shortcuts]
     - name: "Configurer Flameshot sur Print Screen"
       ansible.builtin.command: >
@@ -302,6 +315,7 @@
       loop_control:
         label: "{{ item.key }}"
       changed_when: false
+      when: has_gnome
       tags: [gnome, flameshot]
     # ======================
     # APT – Upgrade + paquets
@@ -328,7 +342,7 @@
           - openfortivpn
           - obs-studio
           - python3-pip
-          - python3.12-venv
+          - python3-venv
           - curl
           - git
           - zsh
@@ -356,22 +370,21 @@
     # ======================
     # LibreOffice – Forcer le français (interface + correcteur)
     # ======================
-    - name: "Créer le dossier de configuration LibreOffice"
-      ansible.builtin.file:
-        path: "{{ user_home }}/.config/libreoffice/4/user/registrymodifications.xcu"
-        state: absent
-      tags: [libreoffice]
     - name: "S'assurer que le dossier config LibreOffice existe"
       ansible.builtin.file:
         path: "{{ user_home }}/.config/libreoffice/4/user"
         state: directory
         mode: "0755"
       tags: [libreoffice]
-    - name: "Configurer LibreOffice en français"
+    - name: "Vérifier si une config LibreOffice existe déjà"
+      ansible.builtin.stat:
+        path: "{{ user_home }}/.config/libreoffice/4/user/registrymodifications.xcu"
+      register: lo_config_stat
+      tags: [libreoffice]
+    - name: "Configurer LibreOffice en français (uniquement si pas de config existante)"
       ansible.builtin.copy:
         dest: "{{ user_home }}/.config/libreoffice/4/user/registrymodifications.xcu"
         mode: "0644"
-        force: false
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
@@ -384,6 +397,7 @@
             <item oor:path="/org.openoffice.Office.Linguistic/ServiceManager/HyphenatorList"><prop oor:name="org.openoffice.lingu.LibHnjHyphenator" oor:op="fuse"><value><it>fr-FR</it></value></prop></item>
             <item oor:path="/org.openoffice.Office.Linguistic/ServiceManager/ThesaurusList"><prop oor:name="org.openoffice.lingu.new.Thesaurus" oor:op="fuse"><value><it>fr-FR</it></value></prop></item>
           </oor:items>
+      when: not lo_config_stat.stat.exists
       tags: [libreoffice]
     # ======================
     # Google Chrome
@@ -571,8 +585,8 @@
         dest: /etc/udev/rules.d/70-disable-ethernet-powersave.rules
         content: |
           # Désactiver EEE (Energy Efficient Ethernet) et power save sur toutes les interfaces filaires
-          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/usr/sbin/ethtool --set-eee %k eee off"
-          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/usr/sbin/ethtool -s %k wol d"
+          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/bin/sh -c '/usr/sbin/ethtool --set-eee %k eee off || true'"
+          ACTION=="add", SUBSYSTEM=="net", KERNEL=="en*|eth*", RUN+="/bin/sh -c '/usr/sbin/ethtool -s %k wol d || true'"
         mode: "0644"
       tags: [ethernet, network]
     - name: "Recharger les règles udev"
@@ -597,7 +611,7 @@
     # ======================
     - name: "Activer IP forwarding (persistant)"
       become: true
-      ansible.builtin.sysctl:
+      ansible.posix.sysctl:
         name: "{{ item }}"
         value: "1"
         sysctl_set: true
@@ -935,18 +949,19 @@
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       failed_when: false
       changed_when: false
+      when: has_gnome
       tags: [gnome, dock]
     # ======================
     # Reboot
     # ======================
-    - name: "Appliquer les handlers en attente"
-      ansible.builtin.meta: flush_handlers
-      tags: [reboot]
-    - name: "Attendre confirmation avant reboot"
+    - name: "Confirmer avant d'appliquer les changements nécessitant un redémarrage"
       ansible.builtin.pause:
-        prompt: "Le système va redémarrer dans 1 minute. Appuyez sur Entrée pour continuer ou Ctrl+C puis 'A' pour annuler le reboot"
+        prompt: "Appuyez sur Entrée pour appliquer les changements en attente (un reboot peut être déclenché), ou Ctrl+C puis 'A' pour annuler"
+      tags: [reboot]
+    - name: "Appliquer les handlers en attente (déclenche le reboot si nécessaire)"
+      ansible.builtin.meta: flush_handlers
       tags: [reboot]
     - name: "Message final"
       ansible.builtin.debug:
-        msg: "Configuration terminée ! Le système redémarrera dans 1 minute si des changements l'exigent."
+        msg: "Configuration terminée ! Si des changements l'exigeaient, le système redémarrera dans 1 minute."
       tags: [reboot]
