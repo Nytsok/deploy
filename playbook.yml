@@ -146,6 +146,22 @@
       changed_when: false
       tags: [gnome, appearance]
     # ======================
+    # GNOME – Désactiver les sons système
+    # ======================
+    - name: "Désactiver les sons système GNOME"
+      ansible.builtin.command: "gsettings set {{ item.schema }} {{ item.key }} {{ item.value }}"
+      environment:
+        DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      loop:
+        - { schema: "org.gnome.desktop.sound", key: "event-sounds", value: "false" }
+        - { schema: "org.gnome.desktop.sound", key: "input-feedback-sounds", value: "false" }
+        - { schema: "org.gnome.desktop.wm.preferences", key: "audible-bell", value: "false" }
+      loop_control:
+        label: "{{ item.schema }} {{ item.key }}"
+      failed_when: false
+      changed_when: false
+      tags: [gnome, sound]
+    # ======================
     # GNOME Terminal – Couleurs personnalisées
     # ======================
     - name: "Créer un nouveau profil terminal perso"
