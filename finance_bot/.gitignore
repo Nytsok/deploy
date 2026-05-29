@@ -1,0 +1,4 @@
+# État local du portefeuille (paper-trading) — propre à chaque utilisateur
+portfolio.json
+__pycache__/
+*.pyc
