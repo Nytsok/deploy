@@ -11,6 +11,7 @@
     exegold_venv: "{{ exegold_dir }}/venv"
     terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"
     balena_etcher_version: "2.1.4"
+    obsidian_version: "1.12.7"
     terminal_profile_id: "12cb3421-ab18-45fc-b08a-f5ad3b883a35"
     # Liste centralisée des raccourcis clavier personnalisés
     custom_keybinding_paths:
@@ -65,6 +66,9 @@
         name: docker
         state: restarted
         daemon_reload: true
+    - name: update_grub
+      become: true
+      ansible.builtin.command: update-grub
   tasks:
     # ======================
     # DBUS (pour gsettings) + détection environnement graphique
@@ -129,6 +133,29 @@
         backup: true
       notify: reboot_system
       tags: [system, x11]
+    # ======================
+    # GRUB – Afficher le menu avec timeout de 5s
+    # ======================
+    - name: "Configurer GRUB_TIMEOUT_STYLE=menu"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^\s*#?\s*GRUB_TIMEOUT_STYLE='
+        line: 'GRUB_TIMEOUT_STYLE=menu'
+        create: true
+        backup: true
+      notify: update_grub
+      tags: [grub, system]
+    - name: "Configurer GRUB_TIMEOUT=5"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/default/grub
+        regexp: '^\s*#?\s*GRUB_TIMEOUT='
+        line: 'GRUB_TIMEOUT=5'
+        create: true
+        backup: true
+      notify: update_grub
+      tags: [grub, system]
     # ======================
     # GNOME – Dark Mode
     # ======================
@@ -455,6 +482,34 @@
         path: /tmp/balena-etcher.deb
         state: absent
       tags: [etcher]
+    # ======================
+    # Obsidian
+    # ======================
+    - name: "Vérifier si Obsidian est installé"
+      ansible.builtin.command: dpkg -s obsidian
+      register: obsidian_check
+      failed_when: false
+      changed_when: false
+      tags: [obsidian]
+    - name: "Télécharger Obsidian .deb"
+      ansible.builtin.get_url:
+        url: "https://github.com/obsidianmd/obsidian-releases/releases/download/v{{ obsidian_version }}/obsidian_{{ obsidian_version }}_amd64.deb"
+        dest: /tmp/obsidian.deb
+        mode: "0644"
+      when: obsidian_check.rc != 0
+      tags: [obsidian]
+    - name: "Installer Obsidian"
+      become: true
+      ansible.builtin.apt:
+        deb: /tmp/obsidian.deb
+        state: present
+      when: obsidian_check.rc != 0
+      tags: [obsidian]
+    - name: "Nettoyer le fichier .deb Obsidian"
+      ansible.builtin.file:
+        path: /tmp/obsidian.deb
+        state: absent
+      tags: [obsidian]
     # ======================
     # Supprimer CUPS
     # ======================
