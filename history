@@ -18,4 +18,10 @@ VPS :
 sudo socat TCP-LISTEN:445,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:4445
 ---------------------------------------------------------------------------
 oneliner :)
+VPS :
+nano /etc/ssh/sshd_config
+GatewayPorts clientspecified
+
+LOCAL :
 ssh root@VPS_IP -R 0.0.0.0:445:$(ip -4 route get 1.1.1.1 | grep -oP 'src \K[\d.]+'):445 -N
+---------------------------------------------------------------------------
