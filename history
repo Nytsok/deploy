@@ -17,7 +17,7 @@ ssh -R 127.0.0.1:4445:127.0.0.1:445 root@VPS_IP -N
 VPS :
 sudo socat TCP-LISTEN:445,fork,reuseaddr,bind=0.0.0.0 TCP:127.0.0.1:4445
 ---------------------------------------------------------------------------
-oneliner :)
+oneliner relay wan :)
 VPS :
 nano /etc/ssh/sshd_config
 GatewayPorts clientspecified
