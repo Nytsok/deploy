@@ -193,6 +193,24 @@
       when: has_gnome
       tags: [gnome, sound]
     # ======================
+    # GNOME Keyring – Vider le trousseau (sera recréé au prochain login)
+    # ======================
+    - name: "Lister les fichiers du keyring GNOME"
+      ansible.builtin.find:
+        paths: "{{ user_home }}/.local/share/keyrings"
+        hidden: true
+        file_type: any
+      register: gnome_keyring_files
+      tags: [gnome, keyring]
+    - name: "Supprimer les fichiers du keyring GNOME"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ gnome_keyring_files.files }}"
+      loop_control:
+        label: "{{ item.path }}"
+      tags: [gnome, keyring]
+    # ======================
     # GNOME Terminal – Couleurs personnalisées
     # ======================
     - name: "Créer un nouveau profil terminal perso"
@@ -392,8 +410,42 @@
           - pipx
           - htop
           - ethtool
+          - cpufrequtils
         state: present
       tags: [apt, packages]
+    # ======================
+    # CPU – Forcer le gouverneur performance
+    # ======================
+    - name: "Configurer le gouverneur CPU sur performance (persistant)"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/default/cpufrequtils
+        content: |
+          GOVERNOR="performance"
+        mode: "0644"
+      tags: [cpu, performance]
+    - name: "Activer le service cpufrequtils"
+      become: true
+      ansible.builtin.systemd:
+        name: cpufrequtils
+        enabled: true
+      failed_when: false
+      tags: [cpu, performance]
+    - name: "Appliquer immédiatement le gouverneur performance"
+      become: true
+      ansible.builtin.shell: |
+        if command -v cpupower >/dev/null 2>&1; then
+          cpupower frequency-set -g performance
+        elif command -v cpufreq-set >/dev/null 2>&1; then
+          for c in /sys/devices/system/cpu/cpu[0-9]*; do
+            cpufreq-set -c "${c##*cpu}" -g performance 2>/dev/null || true
+          done
+        fi
+      args:
+        executable: /bin/bash
+      failed_when: false
+      changed_when: false
+      tags: [cpu, performance]
     # ======================
     # LibreOffice – Forcer le français (interface + correcteur)
     # ======================
@@ -840,6 +892,21 @@
       failed_when: false
       changed_when: docker0_delete.rc == 0
       tags: [docker, cleanup]
+    # ======================
+    # Désactiver des services au démarrage (lancement manuel à la demande)
+    # ======================
+    - name: "Désactiver des services au démarrage"
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: false
+      loop:
+        - bettercap.service
+        - docker.service
+        - containerd.service
+        - NetworkManager-wait-online.service
+      failed_when: false
+      tags: [services, cleanup]
     # ======================
     # ZSH / Oh My Zsh
     # ======================
