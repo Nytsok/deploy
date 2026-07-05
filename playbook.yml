@@ -411,6 +411,7 @@
           - htop
           - ethtool
           - cpufrequtils
+          - iw
         state: present
       tags: [apt, packages]
     # ======================
@@ -563,6 +564,30 @@
         state: absent
       tags: [obsidian]
     # ======================
+    # Mullvad Browser (dépôt officiel Mullvad)
+    # ======================
+    - name: "Ajouter la clé de signature Mullvad"
+      become: true
+      ansible.builtin.get_url:
+        url: https://repository.mullvad.net/deb/mullvad-keyring.asc
+        dest: /usr/share/keyrings/mullvad-keyring.asc
+        mode: "0644"
+      tags: [mullvad-browser]
+    - name: "Ajouter le dépôt Mullvad"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/mullvad.list
+        content: "deb [signed-by=/usr/share/keyrings/mullvad-keyring.asc arch={{ ansible_architecture | regex_replace('x86_64', 'amd64') }}] https://repository.mullvad.net/deb/stable stable main\n"
+        mode: "0644"
+      tags: [mullvad-browser]
+    - name: "Installer Mullvad Browser (met à jour le cache APT)"
+      become: true
+      ansible.builtin.apt:
+        name: mullvad-browser
+        state: present
+        update_cache: true
+      tags: [mullvad-browser]
+    # ======================
     # Supprimer CUPS
     # ======================
     - name: "Arrêter et masquer le service cups"
@@ -682,6 +707,21 @@
           wifi.powersave = 2
         mode: "0644"
       notify: restart_networkmanager
+      tags: [networkmanager, wifi]
+    - name: "Appliquer immédiatement power_save off sur toutes les cartes WiFi"
+      become: true
+      ansible.builtin.shell: |
+        for dev in /sys/class/net/*; do
+          iface=$(basename "$dev")
+          # Une interface WiFi expose le répertoire phy80211
+          if [ -e "$dev/phy80211" ]; then
+            iw dev "$iface" set power_save off 2>/dev/null || true
+          fi
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
       tags: [networkmanager, wifi]
     # ======================
     # Ethernet – Désactiver EEE / power save via udev + ethtool
