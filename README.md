@@ -7,8 +7,8 @@ ansible-playbook -K playbook.yml
 # Exécution SANS reboot (ignore la section reboot)
 ansible-playbook -K playbook.yml --skip-tags reboot
 
-# Installer uniquement certains composants sans reboot
-ansible-playbook -K playbook.yml --tags docker,zsh --skip-tags reboot
+# Installer sans exegold
+ansible-playbook playbook.yml --skip-tags exegold
 
 # Appliquer uniquement les couleurs du terminal
 ansible-playbook -K playbook.yml --tags terminal
