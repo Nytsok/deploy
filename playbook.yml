@@ -680,6 +680,37 @@
       failed_when: false
       tags: [release-upgrade, cleanup]
     # ======================
+    # Télémétrie – Supprimer ubuntu-report, apport, popularity-contest
+    # ======================
+    - name: "Vérifier ce que ubuntu-report enverrait (avant suppression)"
+      ansible.builtin.command: ubuntu-report show
+      register: ubuntu_report_show
+      failed_when: false
+      changed_when: false
+      tags: [telemetry, privacy]
+    - name: "Afficher le contenu de ubuntu-report"
+      ansible.builtin.debug:
+        msg: "{{ ubuntu_report_show.stdout | default('ubuntu-report absent ou aucune donnée') }}"
+      tags: [telemetry, privacy]
+    - name: "Arrêter et désactiver apport"
+      become: true
+      ansible.builtin.systemd:
+        name: apport.service
+        state: stopped
+        enabled: false
+      failed_when: false
+      tags: [telemetry, privacy]
+    - name: "Purger la télémétrie et les rapports de plantage"
+      become: true
+      ansible.builtin.apt:
+        name:
+          - ubuntu-report
+          - apport
+          - popularity-contest
+        state: absent
+        purge: true
+      tags: [telemetry, privacy]
+    # ======================
     # NetworkManager – Désactiver envoi hostname DHCP
     # ======================
     - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
