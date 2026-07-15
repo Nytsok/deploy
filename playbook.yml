@@ -12,6 +12,9 @@
     terminal_colors_file: "{{ user_home }}/terminal-colors.dconf"
     balena_etcher_version: "2.1.4"
     obsidian_version: "1.12.7"
+    # Mettre à false pour déployer tout le playbook SAUF Exegold
+    # (équivaut à : ansible-playbook playbook.yml -e install_exegold=false)
+    install_exegold: true
     terminal_profile_id: "12cb3421-ab18-45fc-b08a-f5ad3b883a35"
     # Liste centralisée des raccourcis clavier personnalisés
     custom_keybinding_paths:
@@ -1216,23 +1219,26 @@
               ConnectionAttempts 3
       tags: [ssh]
     # ======================
-    # Exegold
+    # Exegold (désactivable via -e install_exegold=false)
     # ======================
     - name: "Cloner Exegold"
       ansible.builtin.git:
         repo: https://github.com/fsoc106/Exegold
         dest: "{{ exegold_dir }}"
         update: true
+      when: install_exegold
       tags: [exegold]
     - name: "Créer venv pour Exegold"
       ansible.builtin.command: python3 -m venv {{ exegold_venv }}
       args:
         creates: "{{ exegold_venv }}"
+      when: install_exegold
       tags: [exegold]
     - name: "Installer requirements Exegold dans venv"
       ansible.builtin.pip:
         requirements: "{{ exegold_dir }}/requirements.txt"
         virtualenv: "{{ exegold_venv }}"
+      when: install_exegold
       tags: [exegold]
     - name: "Créer script wrapper exegol"
       become: true
@@ -1242,6 +1248,7 @@
         content: |
           #!/bin/bash
           {{ exegold_venv }}/bin/python {{ exegold_dir }}/exegol.py "$@"
+      when: install_exegold
       tags: [exegold]
     # ======================
     # Claude Code
