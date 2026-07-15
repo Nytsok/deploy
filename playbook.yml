@@ -21,7 +21,7 @@
     dock_favorites:
       - org.gnome.Nautilus.desktop
       - org.gnome.Terminal.desktop
-      - google-chrome.desktop
+      - brave-browser.desktop
       - cherrytree.desktop
       - org.gnome.TextEditor.desktop
       - snap-store_snap-store.desktop
@@ -480,33 +480,47 @@
       when: not lo_config_stat.stat.exists
       tags: [libreoffice]
     # ======================
-    # Google Chrome
+    # Brave Browser (dépôt officiel Brave) + durcissement WebRTC
     # ======================
-    - name: "Vérifier si Google Chrome est installé"
-      ansible.builtin.command: dpkg -s google-chrome-stable
-      register: chrome_check
-      failed_when: false
-      changed_when: false
-      tags: [chrome]
-    - name: "Télécharger Google Chrome .deb"
+    - name: "Ajouter la clé de signature Brave"
+      become: true
       ansible.builtin.get_url:
-        url: https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-        dest: /tmp/google-chrome.deb
+        url: https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+        dest: /usr/share/keyrings/brave-browser-archive-keyring.gpg
         mode: "0644"
-      when: chrome_check.rc != 0
-      tags: [chrome]
-    - name: "Installer Google Chrome"
+      tags: [brave]
+    - name: "Ajouter le dépôt Brave"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/brave-browser-release.list
+        content: "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg arch={{ ansible_architecture | regex_replace('x86_64', 'amd64') }}] https://brave-browser-apt-release.s3.brave.com/ stable main\n"
+        mode: "0644"
+      tags: [brave]
+    - name: "Installer Brave Browser (met à jour le cache APT)"
       become: true
       ansible.builtin.apt:
-        deb: /tmp/google-chrome.deb
+        name: brave-browser
         state: present
-      when: chrome_check.rc != 0
-      tags: [chrome]
-    - name: "Nettoyer le fichier .deb Google Chrome"
+        update_cache: true
+      tags: [brave]
+    - name: "Créer le dossier de policies Brave"
+      become: true
       ansible.builtin.file:
-        path: /tmp/google-chrome.deb
-        state: absent
-      tags: [chrome]
+        path: /etc/brave/policies/managed
+        state: directory
+        mode: "0755"
+      tags: [brave, hardening]
+    - name: "Durcir WebRTC (Désactiver l'UDP sans proxy)"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/brave/policies/managed/webrtc-hardening.json
+        mode: "0644"
+        content: |
+          {
+            "WebRtcIPHandling": "disable_non_proxied_udp",
+            "WebRtcIPHandlingPolicy": "disable_non_proxied_udp"
+          }
+      tags: [brave, hardening]
     # ======================
     # Balena Etcher
     # ======================
@@ -771,6 +785,101 @@
         mode: "0644"
       notify: restart_networkmanager
       tags: [networkmanager, privacy, mac]
+    # ======================
+    # NetworkManager – Désactiver la connexion automatique (WiFi + Ethernet, toutes cartes)
+    # ======================
+    - name: "Désactiver l'autoconnect par défaut pour les nouveaux profils"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/10-disable-autoconnect.conf
+        content: |
+          [connection]
+          connection.autoconnect=false
+        mode: "0644"
+      notify: restart_networkmanager
+      tags: [networkmanager, privacy, autoconnect]
+    - name: "Lister les profils de connexion existants"
+      become: true
+      ansible.builtin.command: nmcli -t -f UUID connection show
+      register: nm_connection_uuids
+      changed_when: false
+      failed_when: false
+      tags: [networkmanager, privacy, autoconnect]
+    - name: "Désactiver l'autoconnect sur les profils existants (réseaux connus)"
+      become: true
+      ansible.builtin.command: "nmcli connection modify {{ item }} connection.autoconnect no"
+      loop: "{{ nm_connection_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      changed_when: false
+      failed_when: false
+      tags: [networkmanager, privacy, autoconnect]
+    # ======================
+    # NetworkManager – Watchdog de reconnexion automatique
+    # Relance la connexion ACTIVE (WiFi ou Ethernet) si elle tombe,
+    # sans auto-rejoindre les réseaux connus (compatible vie privée).
+    # ======================
+    - name: "Créer le script de reconnexion automatique"
+      become: true
+      ansible.builtin.copy:
+        dest: /usr/local/bin/nm-reconnect-watchdog.sh
+        mode: "0755"
+        content: |
+          #!/bin/bash
+          # Surveille la dernière connexion NetworkManager activée (WiFi ou Ethernet)
+          # et la relance si elle tombe. Ne reconnecte QUE ce que l'utilisateur a
+          # activé (pas d'auto-join de réseaux connus au hasard) -> compatible vie privée.
+          # L'état est en /run : rien n'est reconnecté après un reboot tant que
+          # l'utilisateur n'a pas établi une première connexion manuelle.
+          STATE=/run/nm-last-active-connection
+          INTERVAL=10
+
+          while true; do
+            active_uuid=$(nmcli -t -f UUID,TYPE connection show --active 2>/dev/null \
+              | grep -E ':(802-11-wireless|802-3-ethernet)$' \
+              | head -n1 | cut -d: -f1)
+
+            if [ -n "$active_uuid" ]; then
+              # Une connexion filaire/WiFi est active : on la mémorise
+              echo "$active_uuid" > "$STATE"
+            elif [ -f "$STATE" ]; then
+              # Plus rien d'actif : on relance la dernière connexion connue
+              last_uuid=$(cat "$STATE")
+              if [ -n "$last_uuid" ]; then
+                nmcli --wait 20 connection up uuid "$last_uuid" >/dev/null 2>&1 || true
+              fi
+            fi
+            sleep "$INTERVAL"
+          done
+      tags: [networkmanager, reconnect]
+    - name: "Créer le service systemd du watchdog de reconnexion"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/nm-reconnect-watchdog.service
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Reconnexion automatique de la derniere connexion NetworkManager active
+          After=NetworkManager.service
+          Wants=NetworkManager.service
+
+          [Service]
+          Type=simple
+          ExecStart=/usr/local/bin/nm-reconnect-watchdog.sh
+          Restart=always
+          RestartSec=5
+
+          [Install]
+          WantedBy=multi-user.target
+      tags: [networkmanager, reconnect]
+    - name: "Activer et démarrer le watchdog de reconnexion"
+      become: true
+      ansible.builtin.systemd:
+        name: nm-reconnect-watchdog.service
+        enabled: true
+        state: started
+        daemon_reload: true
+      tags: [networkmanager, reconnect]
     # ======================
     # Ethernet – Désactiver EEE / power save via udev + ethtool
     # ======================
