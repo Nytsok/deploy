@@ -755,6 +755,23 @@
       failed_when: false
       tags: [networkmanager, wifi]
     # ======================
+    # NetworkManager – Randomisation d'adresse MAC (WiFi + Ethernet)
+    # ======================
+    - name: "Activer la randomisation d'adresse MAC"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/99-random-mac.conf
+        content: |
+          [device]
+          wifi.scan-rand-mac-address=yes
+
+          [connection]
+          wifi.cloned-mac-address=random
+          ethernet.cloned-mac-address=random
+        mode: "0644"
+      notify: restart_networkmanager
+      tags: [networkmanager, privacy, mac]
+    # ======================
     # Ethernet – Désactiver EEE / power save via udev + ethtool
     # ======================
     - name: "Créer règle udev pour désactiver EEE et power save sur Ethernet"
