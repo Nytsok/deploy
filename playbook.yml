@@ -728,21 +728,46 @@
         purge: true
       tags: [telemetry, privacy]
     # ======================
-    # NetworkManager – Désactiver envoi hostname DHCP
+    # NetworkManager – Désactiver envoi hostname DHCP (option 12 / FQDN 81)
     # ======================
-    - name: "Créer configuration NetworkManager pour désactiver hostname DHCP"
+    # ATTENTION (07/08/2026) : sur NetworkManager 1.46, ipv4/ipv6.dhcp-send-hostname
+    # N'EST PAS accepté en section [connection] d'un fichier conf.d (liste blanche
+    # de propriétés restreinte) -> 4 warnings "unknown key" au boot et fichier SANS
+    # EFFET. Le hostname (DESKTOP-QGP2SHL) repartait donc en option 12 DHCP à chaque
+    # bail, ré-corrélant toutes les sessions par-dessus la MAC aléatoire. Le blocage
+    # FIABLE se fait PAR PROFIL via nmcli (comme l'autoconnect plus bas). L'ancien
+    # conf.d est conservé en commentaires : documente l'intention, zéro warning.
+    - name: "Neutraliser l'ancien conf.d hostname (clés invalides sur NM 1.46)"
       become: true
       ansible.builtin.copy:
         dest: /etc/NetworkManager/conf.d/00-disable-dhcp-hostname.conf
         content: |
-          [connection]
-          ipv4.dhcp-send-hostname=no
-          ipv6.dhcp-send-hostname=no
-          ipv4.dhcp-hostname=
-          ipv6.dhcp-hostname=
+          # Volontairement vide.
+          # NM 1.46 REFUSE ipv4/ipv6.dhcp-send-hostname en section [connection] d'un
+          # conf.d (liste blanche) -> warnings au boot, aucun effet. Le blocage de
+          # l'option 12 (hostname) est fait PAR PROFIL, voir la tache Ansible
+          # "Desactiver l'envoi du hostname DHCP sur les profils existants".
         mode: "0644"
       notify: restart_networkmanager
-      tags: [networkmanager, privacy]
+      tags: [networkmanager, privacy, hostname]
+    - name: "Lister les profils de connexion (pour désactivation hostname)"
+      become: true
+      ansible.builtin.command: nmcli -t -f UUID connection show
+      register: nm_hostname_uuids
+      changed_when: false
+      failed_when: false
+      tags: [networkmanager, privacy, hostname]
+    - name: "Désactiver l'envoi du hostname DHCP sur les profils existants"
+      become: true
+      ansible.builtin.command: >
+        nmcli connection modify {{ item }}
+        ipv4.dhcp-send-hostname no ipv6.dhcp-send-hostname no
+      loop: "{{ nm_hostname_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      changed_when: false
+      failed_when: false
+      tags: [networkmanager, privacy, hostname]
     # ======================
     # NetworkManager – Désactiver le power save WiFi
     # ======================
@@ -772,9 +797,15 @@
       failed_when: false
       tags: [networkmanager, wifi]
     # ======================
-    # NetworkManager – Randomisation d'adresse MAC (WiFi + Ethernet)
+    # NetworkManager – Anti-corrélation : MAC + client-id + DUID + IPv6 aléatoires
     # ======================
-    - name: "Activer la randomisation d'adresse MAC"
+    # La randomisation MAC seule ne suffit pas : sans dhcp-client-id=mac, le
+    # client-id DHCP peut rester STABLE (dérivé d'un identifiant persistant) et
+    # re-corréler les sessions par-dessus la MAC aléatoire. Ces 3 clés forcent
+    # tout à suivre la MAC aléatoire : client-id (v4), DUID link-layer (v6) et
+    # adresses IPv6 en mode random. Contrairement à dhcp-send-hostname, ces
+    # propriétés SONT valides en défaut global [connection] d'un conf.d.
+    - name: "Activer l'anti-corrélation réseau (MAC + client-id + DUID + IPv6)"
       become: true
       ansible.builtin.copy:
         dest: /etc/NetworkManager/conf.d/99-random-mac.conf
@@ -785,6 +816,9 @@
           [connection]
           wifi.cloned-mac-address=random
           ethernet.cloned-mac-address=random
+          ipv4.dhcp-client-id=mac
+          ipv6.dhcp-duid=ll
+          ipv6.addr-gen-mode=random
         mode: "0644"
       notify: restart_networkmanager
       tags: [networkmanager, privacy, mac]
