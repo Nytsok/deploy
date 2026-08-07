@@ -48,11 +48,9 @@
       - { name: zsh-z, repo: "https://github.com/agkozak/zsh-z.git" }
       - { name: zsh-nvm, repo: "https://github.com/lukechilds/zsh-nvm.git" }
   handlers:
-    - name: reboot_system
-      become: true
-      ansible.builtin.command: shutdown -r +1 "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
-      async: 1
-      poll: 0
+    # ATTENTION : Ansible execute les handlers dans l'ordre de DEFINITION (pas de notification).
+    # reboot_system est donc place EN DERNIER pour laisser update_grub, restart_networkmanager,
+    # restart_systemd_resolved et restart_docker s'appliquer AVANT le reboot.
     - name: restart_networkmanager
       become: true
       ansible.builtin.systemd:
@@ -72,6 +70,11 @@
     - name: update_grub
       become: true
       ansible.builtin.command: update-grub
+    - name: reboot_system
+      become: true
+      ansible.builtin.command: shutdown -r +1 "Redémarrage pour appliquer les changements (X11, Docker, etc.)"
+      async: 1
+      poll: 0
   tasks:
     # ======================
     # DBUS (pour gsettings) + détection environnement graphique
@@ -86,9 +89,14 @@
       failed_when: false
       changed_when: false
       tags: [always]
-    - name: "Définir has_gnome"
+    - name: "Vérifier la joignabilité du bus D-Bus utilisateur"
+      ansible.builtin.stat:
+        path: "/run/user/{{ ansible_user_uid }}/bus"
+      register: dbus_sock
+      tags: [always]
+    - name: "Définir has_gnome (binaire + bus D-Bus)"
       ansible.builtin.set_fact:
-        has_gnome: "{{ gsettings_check.rc == 0 }}"
+        has_gnome: "{{ gsettings_check.rc == 0 and dbus_sock.stat.exists }}"
       tags: [always]
     # ======================
     # GNOME – Désactiver verrouillage et veille automatique
@@ -196,7 +204,11 @@
       when: has_gnome
       tags: [gnome, sound]
     # ======================
-    # GNOME Keyring – Vider le trousseau (sera recréé au prochain login)
+    # GNOME Keyring – Vider le trousseau (destructif : uniquement sur tag explicite)
+    # ATTENTION : opération destructive et non idempotente. Elle EFFACE TOUS les secrets
+    # enregistrés dans ~/.local/share/keyrings à chaque exécution. Volontairement placée
+    # derrière le tag "never" : ne s'exécute QUE sur invocation explicite via
+    #   ansible-playbook playbook.yml --tags keyring-wipe
     # ======================
     - name: "Lister les fichiers du keyring GNOME"
       ansible.builtin.find:
@@ -204,7 +216,7 @@
         hidden: true
         file_type: any
       register: gnome_keyring_files
-      tags: [gnome, keyring]
+      tags: [never, keyring-wipe]
     - name: "Supprimer les fichiers du keyring GNOME"
       ansible.builtin.file:
         path: "{{ item.path }}"
@@ -212,7 +224,7 @@
       loop: "{{ gnome_keyring_files.files }}"
       loop_control:
         label: "{{ item.path }}"
-      tags: [gnome, keyring]
+      tags: [never, keyring-wipe]
     # ======================
     # GNOME Terminal – Couleurs personnalisées
     # ======================
@@ -246,6 +258,7 @@
         executable: /bin/bash
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
       changed_when: false
       when: has_gnome
       tags: [gnome, terminal]
@@ -261,6 +274,7 @@
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
       when: has_gnome and terminal_colors_stat.stat.exists
+      failed_when: false
       changed_when: false
       tags: [gnome, terminal]
     - name: "Afficher un message si le fichier de couleurs est absent"
@@ -332,6 +346,7 @@
         "{{ custom_keybinding_paths | string }}"
       environment:
         DBUS_SESSION_BUS_ADDRESS: "{{ dbus_addr }}"
+      failed_when: false
       changed_when: false
       when: has_gnome
       tags: [gnome, shortcuts]
@@ -347,6 +362,7 @@
         - { key: binding, value: "<Control><Alt>Delete" }
       loop_control:
         label: "{{ item.key }}"
+      failed_when: false
       changed_when: false
       when: has_gnome
       tags: [gnome, shortcuts]
@@ -362,6 +378,7 @@
         - { key: binding, value: "Print" }
       loop_control:
         label: "{{ item.key }}"
+      failed_when: false
       changed_when: false
       when: has_gnome
       tags: [gnome, flameshot]
@@ -438,8 +455,10 @@
     - name: "Appliquer immédiatement le gouverneur performance"
       become: true
       ansible.builtin.shell: |
-        if command -v cpupower >/dev/null 2>&1; then
-          cpupower frequency-set -g performance
+        # Chainer sur le SUCCES et non sur la presence : si cpupower est present mais
+        # que le driver de scaling est absent (frequent en VM), on tente cpufreq-set.
+        if command -v cpupower >/dev/null 2>&1 && cpupower frequency-set -g performance >/dev/null 2>&1; then
+          :
         elif command -v cpufreq-set >/dev/null 2>&1; then
           for c in /sys/devices/system/cpu/cpu[0-9]*; do
             cpufreq-set -c "${c##*cpu}" -g performance 2>/dev/null || true
@@ -513,15 +532,21 @@
         state: directory
         mode: "0755"
       tags: [brave, hardening]
-    - name: "Durcir WebRTC (Désactiver l'UDP sans proxy)"
+    - name: "Durcir WebRTC + désactiver la télémétrie Brave"
       become: true
       ansible.builtin.copy:
         dest: /etc/brave/policies/managed/webrtc-hardening.json
         mode: "0644"
+        # WebRtcIPHandling (moderne) + WebRTCIPHandlingPolicy (historique, RTC en MAJ).
+        # L'orthographe "WebRtcIPHandlingPolicy" n'existe pas cote Chromium et serait ignoree.
+        # A verifier apres deploiement dans brave://policy (statut OK, pas Unknown policy).
         content: |
           {
             "WebRtcIPHandling": "disable_non_proxied_udp",
-            "WebRtcIPHandlingPolicy": "disable_non_proxied_udp"
+            "WebRTCIPHandlingPolicy": "disable_non_proxied_udp",
+            "BraveP3AEnabled": false,
+            "BraveStatsPingEnabled": false,
+            "MetricsReportingEnabled": false
           }
       tags: [brave, hardening]
     # ======================
@@ -728,59 +753,238 @@
         purge: true
       tags: [telemetry, privacy]
     # ======================
-    # NetworkManager – Désactiver envoi hostname DHCP (option 12 / FQDN 81)
+    # Balises reseau residuelles vers Canonical / vendeurs de depots tiers
+    # ATTENTION VIE PRIVEE : ces timers declenchent spontanement des requetes vers
+    # motd.ubuntu.com, api.snapcraft.io, archive.ubuntu.com, security.ubuntu.com,
+    # brave-browser-apt-release.s3.brave.com, repository.mullvad.net, download.docker.com,
+    # fwupd.org. Chaque contact est correlable a la MAC aleatoire du moment et signe la
+    # distribution + la liste des depots. Les mises a jour restent possibles a la demande
+    # via l'alias `update` (defini plus bas dans .zshrc), sous controle de l'operateur.
     # ======================
-    # ATTENTION (07/08/2026) : sur NetworkManager 1.46, ipv4/ipv6.dhcp-send-hostname
-    # N'EST PAS accepté en section [connection] d'un fichier conf.d (liste blanche
-    # de propriétés restreinte) -> 4 warnings "unknown key" au boot et fichier SANS
-    # EFFET. Le hostname (DESKTOP-QGP2SHL) repartait donc en option 12 DHCP à chaque
-    # bail, ré-corrélant toutes les sessions par-dessus la MAC aléatoire. Le blocage
-    # FIABLE se fait PAR PROFIL via nmcli (comme l'autoconnect plus bas). L'ancien
-    # conf.d est conservé en commentaires : documente l'intention, zéro warning.
-    - name: "Neutraliser l'ancien conf.d hostname (clés invalides sur NM 1.46)"
+    - name: "Neutraliser motd-news et snap repair"
       become: true
-      ansible.builtin.copy:
-        dest: /etc/NetworkManager/conf.d/00-disable-dhcp-hostname.conf
-        content: |
-          # Volontairement vide.
-          # NM 1.46 REFUSE ipv4/ipv6.dhcp-send-hostname en section [connection] d'un
-          # conf.d (liste blanche) -> warnings au boot, aucun effet. Le blocage de
-          # l'option 12 (hostname) est fait PAR PROFIL, voir la tache Ansible
-          # "Desactiver l'envoi du hostname DHCP sur les profils existants".
-        mode: "0644"
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop:
+        - motd-news.timer
+        - motd-news.service
+        - snapd.snap-repair.timer
+      failed_when: false
+      tags: [telemetry, privacy]
+    - name: "Desactiver motd-news dans /etc/default/motd-news"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/default/motd-news
+        regexp: '^\s*ENABLED\s*='
+        line: 'ENABLED=0'
+        create: false
+      failed_when: false
+      tags: [telemetry, privacy]
+    - name: "Masquer les rafraichissements APT et firmware automatiques"
+      become: true
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+        masked: true
+      loop:
+        - apt-daily.timer
+        - apt-daily-upgrade.timer
+        - apt-daily.service
+        - apt-daily-upgrade.service
+        - fwupd-refresh.timer
+        - fwupd-refresh.service
+      failed_when: false
+      tags: [telemetry, privacy]
+    - name: "Figer les snaps installes (pas de refresh automatique)"
+      become: true
+      ansible.builtin.command: snap refresh --hold
+      register: snap_hold
+      changed_when: "'held' in (snap_hold.stdout | default('')) or 'Held' in (snap_hold.stdout | default(''))"
+      failed_when: false
+      tags: [telemetry, privacy]
+    # ======================
+    # Hostname – Neutraliser l'identifiant racine
+    # ======================
+    # Le hostname est le SEUL identifiant du poste qui ne change jamais et qui est
+    # structurellement destine a sortir sur le reseau (option 12 DHCP, FQDN 81,
+    # reverse-DNS, mDNS/LLMNR, User-Agent de certaines applis). Un nom "DESKTOP-XXXX"
+    # style Windows est statistiquement unique. On le remplace par "ubuntu", nom
+    # generique livre par le liveCD -> se fond dans la masse. Il suffit d'UNE fuite
+    # pour lier definitivement entre elles toutes les MAC aleatoires.
+    - name: "Neutraliser le hostname statique (identifiant racine)"
+      become: true
+      ansible.builtin.hostname:
+        name: ubuntu
+        use: systemd
+      register: hostname_result
+      notify: reboot_system
+      tags: [privacy, hostname]
+    - name: "Aligner /etc/hosts sur le nouveau hostname"
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1\s'
+        line: '127.0.1.1 ubuntu'
+        backup: true
+      tags: [privacy, hostname]
+    # Chromium/Brave stocke un SingletonLock symlink -> "HOSTNAME-PID". Apres
+    # changement de hostname, le lock pointe vers l'ancien nom -> Brave/Chrome
+    # affichent "The profile appears to be in use by another Brave process on
+    # another computer" et refusent de demarrer. On supprime les 3 symlinks
+    # Singleton* (ils sont recrees automatiquement au prochain lancement).
+    - name: "Nettoyer les Singleton locks des navigateurs Chromium (hostname change)"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ user_home }}/.config/BraveSoftware/Brave-Browser/SingletonLock"
+        - "{{ user_home }}/.config/BraveSoftware/Brave-Browser/SingletonCookie"
+        - "{{ user_home }}/.config/BraveSoftware/Brave-Browser/SingletonSocket"
+        - "{{ user_home }}/.config/google-chrome/SingletonLock"
+        - "{{ user_home }}/.config/google-chrome/SingletonCookie"
+        - "{{ user_home }}/.config/google-chrome/SingletonSocket"
+        - "{{ user_home }}/.config/chromium/SingletonLock"
+        - "{{ user_home }}/.config/chromium/SingletonCookie"
+        - "{{ user_home }}/.config/chromium/SingletonSocket"
+      when: hostname_result is changed
+      tags: [privacy, hostname, brave]
+    # ======================
+    # NetworkManager – Configuration privacy consolidee (source unique de verite)
+    # ======================
+    # Historique : le playbook posait 3 fichiers conf.d (00-disable-dhcp-hostname,
+    # 10-disable-autoconnect, 99-random-mac) contenant des cles ("connection.autoconnect",
+    # "ipv4/ipv6.dhcp-send-hostname") REFUSEES par la whitelist [connection] de
+    # NetworkManager 1.46 (verifie : "unknown key" via --print-config). Resultat :
+    # 4+ warnings au boot, fichiers sans effet, dependance a un durcissement
+    # per-profil dont un bug (profil "lo" inclus par erreur, echecs masques) laissait
+    # des profils non durcis. Un fichier manuel 02-stealth.conf (+ .bak) redoublait
+    # le 99 avec des valeurs divergentes.
+    # Nouvelle approche : UN SEUL fichier 99-anticorrelation.conf, avec UNIQUEMENT
+    # des cles verifiees dans la whitelist des defauts globaux [connection] de NM
+    # 1.46 (man 5 NetworkManager.conf). Les cles refusees sont laissees au
+    # dispatcher (couvre les profils futurs) + au durcissement per-profil.
+    - name: "Purger les conf.d NM concurrents (source unique = 99-anticorrelation)"
+      become: true
+      ansible.builtin.file:
+        path: "/etc/NetworkManager/conf.d/{{ item }}"
+        state: absent
+      loop:
+        - 00-disable-dhcp-hostname.conf
+        - 01-disable-wifi-powersave.conf
+        - 02-stealth.conf
+        - 02-stealth.conf.bak
+        - 10-disable-autoconnect.conf
+        - 99-random-mac.conf
+        - default-wifi-powersave-on.conf
+        - wifi-powersave-off.conf
       notify: restart_networkmanager
-      tags: [networkmanager, privacy, hostname]
-    - name: "Lister les profils de connexion (pour désactivation hostname)"
-      become: true
-      ansible.builtin.command: nmcli -t -f UUID connection show
-      register: nm_hostname_uuids
-      changed_when: false
-      failed_when: false
-      tags: [networkmanager, privacy, hostname]
-    - name: "Désactiver l'envoi du hostname DHCP sur les profils existants"
-      become: true
-      ansible.builtin.command: >
-        nmcli connection modify {{ item }}
-        ipv4.dhcp-send-hostname no ipv6.dhcp-send-hostname no
-      loop: "{{ nm_hostname_uuids.stdout_lines | default([]) }}"
-      loop_control:
-        label: "{{ item }}"
-      changed_when: false
-      failed_when: false
-      tags: [networkmanager, privacy, hostname]
-    # ======================
-    # NetworkManager – Désactiver le power save WiFi
-    # ======================
-    - name: "Désactiver le power save WiFi (persistant via NetworkManager)"
+      tags: [networkmanager, privacy]
+    - name: "Ecrire la config privacy NetworkManager consolidee"
       become: true
       ansible.builtin.copy:
-        dest: /etc/NetworkManager/conf.d/01-disable-wifi-powersave.conf
+        dest: /etc/NetworkManager/conf.d/99-anticorrelation.conf
+        mode: "0644"
+        # TOUTES les cles ci-dessous SONT dans la whitelist des defauts globaux
+        # de NetworkManager 1.46 (man 5 NetworkManager.conf) -> zero warning au boot.
+        # - addr-gen-mode=eui64 : avec cloned-mac-address=random, l'IID IPv6 suit
+        #   la MAC aleatoire et change a chaque activation (verifie runtime).
+        #   ATTENTION: "random" N'EST PAS une valeur valide sur NM 1.46 (repli
+        #   silencieux en stable-privacy -> IID stable = re-correlation). Les
+        #   valeurs autorisees sont: eui64 (0), stable-privacy (1), default (3),
+        #   default-or-eui64 (2). Ne PAS remettre "random" ici.
+        # - ip6-privacy=2 : epingle explicitement RFC4941 (adresses temporaires
+        #   pour trafic sortant), au lieu de dependre du sysctl distro.
+        # - hostname.from-dhcp/from-dns-lookup=false : empeche NM de reecrire le
+        #   hostname transitoire depuis le DHCP ou le reverse-DNS.
+        # - connection.llmnr/mdns=0 : force la desactivation LLMNR/mDNS au niveau
+        #   NM (le par-lien prime sur le global systemd-resolved).
+        # - dhcp-client-id=mac / dhcp-duid=ll : le client-id et le DUID suivent
+        #   la MAC EN COURS D'USAGE (la clonee) et pas un identifiant persistant.
+        # - autoconnect / dhcp-send-hostname : NON incluses ici (refusees en
+        #   defaut global sur 1.46). Traitees par le dispatcher 50-privacy-newprofile
+        #   et par le durcissement per-profil plus bas.
         content: |
+          [device]
+          wifi.scan-rand-mac-address=yes
+
           [connection]
-          wifi.powersave = 2
-        mode: "0644"
+          wifi.cloned-mac-address=random
+          ethernet.cloned-mac-address=random
+          wifi.powersave=2
+          ipv4.dhcp-client-id=mac
+          ipv6.dhcp-duid=ll
+          ipv6.addr-gen-mode=eui64
+          ipv6.ip6-privacy=2
+          connection.llmnr=0
+          connection.mdns=0
+          hostname.from-dhcp=false
+          hostname.from-dns-lookup=false
       notify: restart_networkmanager
-      tags: [networkmanager, wifi]
+      tags: [networkmanager, privacy, mac]
+    # ======================
+    # NetworkManager – Desactiver connectivity-check (GET HTTP en clair vers Canonical)
+    # ======================
+    # /usr/lib/NetworkManager/conf.d/20-connectivity-ubuntu.conf force NM a envoyer
+    # une requete HTTP en clair vers connectivity-check.ubuntu.com a chaque attach
+    # reseau -> signal "un poste Ubuntu vient de se connecter" horodate et
+    # correlable a la MAC du moment. On le shadow avec un fichier de MEME NOM
+    # dans /etc (documente dans man 5 NetworkManager.conf).
+    - name: "Desactiver le connectivity check NetworkManager (shadow du fichier vendeur)"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/conf.d/20-connectivity-ubuntu.conf
+        mode: "0644"
+        content: |
+          [connectivity]
+          enabled=false
+          uri=
+      notify: restart_networkmanager
+      tags: [networkmanager, privacy]
+    # ======================
+    # NetworkManager – Dispatcher pre-up : couvre les profils FUTURS
+    # ======================
+    # Les cles connection.autoconnect et ipv4/ipv6.dhcp-send-hostname NE SONT PAS
+    # acceptees comme defaut global sur NM 1.46 (unknown key). Elles doivent donc
+    # etre posees PAR PROFIL. Ce dispatcher garantit que TOUT profil (existant ou
+    # futur) qui monte est durci automatiquement, sans intervention manuelle.
+    - name: "Poser le dispatcher NM (durcissement automatique des profils)"
+      become: true
+      ansible.builtin.copy:
+        dest: /etc/NetworkManager/dispatcher.d/50-privacy-newprofile
+        mode: "0755"
+        owner: root
+        group: root
+        content: |
+          #!/bin/sh
+          # Durcit chaque profil NetworkManager au moment ou il monte :
+          # - autoconnect no (jamais de reconnexion silencieuse a un reseau connu)
+          # - dhcp-send-hostname no (pas d'option 12 / FQDN 81 en DHCP)
+          # - hidden no sur les profils WiFi (pas de Probe Request dirigee = pas
+          #   de diffusion de SSID)
+          # Le dispatcher recoit: $1=interface, $2=action, $CONNECTION_UUID=profil.
+          [ "$2" = "up" ] || exit 0
+          [ -n "$CONNECTION_UUID" ] || exit 0
+          # Determiner le type de connexion (WiFi/Ethernet/autre) pour n'appliquer
+          # 802-11-wireless.hidden que sur les profils WiFi (sinon la commande echoue).
+          conn_type=$(nmcli -t -f connection.type connection show "$CONNECTION_UUID" 2>/dev/null | cut -d: -f2)
+          nmcli connection modify "$CONNECTION_UUID" \
+            connection.autoconnect no \
+            ipv4.dhcp-send-hostname no \
+            ipv6.dhcp-send-hostname no >/dev/null 2>&1 || true
+          if [ "$conn_type" = "802-11-wireless" ]; then
+            nmcli connection modify "$CONNECTION_UUID" 802-11-wireless.hidden no >/dev/null 2>&1 || true
+          fi
+          exit 0
+      tags: [networkmanager, privacy]
+    # ======================
+    # NetworkManager – WiFi power save (application immediate)
+    # ======================
+    # La persistance passe par 99-anticorrelation.conf (wifi.powersave=2).
+    # Ici on applique juste immediatement, sans creer un fichier concurrent.
     - name: "Appliquer immédiatement power_save off sur toutes les cartes WiFi"
       become: true
       ansible.builtin.shell: |
@@ -797,60 +1001,80 @@
       failed_when: false
       tags: [networkmanager, wifi]
     # ======================
-    # NetworkManager – Anti-corrélation : MAC + client-id + DUID + IPv6 aléatoires
+    # NetworkManager – Durcissement per-profil (WiFi + Ethernet uniquement)
     # ======================
-    # La randomisation MAC seule ne suffit pas : sans dhcp-client-id=mac, le
-    # client-id DHCP peut rester STABLE (dérivé d'un identifiant persistant) et
-    # re-corréler les sessions par-dessus la MAC aléatoire. Ces 3 clés forcent
-    # tout à suivre la MAC aléatoire : client-id (v4), DUID link-layer (v6) et
-    # adresses IPv6 en mode random. Contrairement à dhcp-send-hostname, ces
-    # propriétés SONT valides en défaut global [connection] d'un conf.d.
-    - name: "Activer l'anti-corrélation réseau (MAC + client-id + DUID + IPv6)"
+    # Un LISTAGE UNIQUE, filtre sur les vrais types de device : exclut loopback
+    # (side-effect: applique autoconnect=no sur "lo" empechait le profil loopback
+    # de s'activer au boot) et les eventuels profils VPN/bridge/etc.
+    # `set -o pipefail` garantit qu'une erreur nmcli en tete de pipeline se
+    # propage. `changed_when: false` sur le listing (pure lecture), `changed_when: rc==0`
+    # sur les modifs (le CHANGEMENT est masque par --terse sinon), assert final
+    # pour verifier que rien n'est reste `yes`.
+    - name: "Lister les profils WiFi/Ethernet (filtre par type)"
       become: true
-      ansible.builtin.copy:
-        dest: /etc/NetworkManager/conf.d/99-random-mac.conf
-        content: |
-          [device]
-          wifi.scan-rand-mac-address=yes
-
-          [connection]
-          wifi.cloned-mac-address=random
-          ethernet.cloned-mac-address=random
-          ipv4.dhcp-client-id=mac
-          ipv6.dhcp-duid=ll
-          ipv6.addr-gen-mode=random
-        mode: "0644"
-      notify: restart_networkmanager
-      tags: [networkmanager, privacy, mac]
-    # ======================
-    # NetworkManager – Désactiver la connexion automatique (WiFi + Ethernet, toutes cartes)
-    # ======================
-    - name: "Désactiver l'autoconnect par défaut pour les nouveaux profils"
-      become: true
-      ansible.builtin.copy:
-        dest: /etc/NetworkManager/conf.d/10-disable-autoconnect.conf
-        content: |
-          [connection]
-          connection.autoconnect=false
-        mode: "0644"
-      notify: restart_networkmanager
-      tags: [networkmanager, privacy, autoconnect]
-    - name: "Lister les profils de connexion existants"
-      become: true
-      ansible.builtin.command: nmcli -t -f UUID connection show
-      register: nm_connection_uuids
+      ansible.builtin.shell: |
+        set -o pipefail
+        nmcli -t -f UUID,TYPE connection show \
+          | awk -F: '$2=="802-11-wireless" || $2=="802-3-ethernet" {print $1}'
+      args:
+        executable: /bin/bash
+      register: nm_uuids
       changed_when: false
-      failed_when: false
-      tags: [networkmanager, privacy, autoconnect]
-    - name: "Désactiver l'autoconnect sur les profils existants (réseaux connus)"
+      tags: [networkmanager, privacy]
+    - name: "Durcir les profils existants (autoconnect + dhcp-send-hostname)"
       become: true
-      ansible.builtin.command: "nmcli connection modify {{ item }} connection.autoconnect no"
-      loop: "{{ nm_connection_uuids.stdout_lines | default([]) }}"
+      ansible.builtin.command: >
+        nmcli connection modify {{ item }}
+        connection.autoconnect no
+        ipv4.dhcp-send-hostname no
+        ipv6.dhcp-send-hostname no
+      loop: "{{ nm_uuids.stdout_lines | default([]) }}"
       loop_control:
         label: "{{ item }}"
+      register: nm_mod
+      changed_when: nm_mod.rc == 0
+      tags: [networkmanager, privacy]
+    - name: "Lister les profils WiFi seuls (pour hidden=no)"
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        nmcli -t -f UUID,TYPE connection show \
+          | awk -F: '$2=="802-11-wireless" {print $1}'
+      args:
+        executable: /bin/bash
+      register: nm_wifi_uuids
       changed_when: false
-      failed_when: false
-      tags: [networkmanager, privacy, autoconnect]
+      tags: [networkmanager, privacy]
+    - name: "Interdire les probe requests dirigees (hidden=no sur profils WiFi)"
+      become: true
+      ansible.builtin.command: "nmcli connection modify {{ item }} 802-11-wireless.hidden no"
+      loop: "{{ nm_wifi_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: nm_hidden
+      changed_when: nm_hidden.rc == 0
+      tags: [networkmanager, privacy]
+    - name: "Verifier l'anti-correlation effective (audit bloquant)"
+      become: true
+      ansible.builtin.command: >
+        nmcli -g ipv4.dhcp-send-hostname,ipv6.dhcp-send-hostname,connection.autoconnect
+        connection show {{ item }}
+      loop: "{{ nm_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: nm_audit
+      changed_when: false
+      tags: [networkmanager, privacy]
+    - name: "Asserter qu'aucun profil ne fuite (hostname / autoconnect)"
+      ansible.builtin.assert:
+        that:
+          - "'yes' not in (item.stdout_lines | map('lower') | list)"
+          - "'true' not in (item.stdout_lines | map('lower') | list)"
+        fail_msg: "Profil {{ item.item }} non durci : {{ item.stdout_lines }}"
+      loop: "{{ nm_audit.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      tags: [networkmanager, privacy]
     # ======================
     # NetworkManager – Watchdog de reconnexion automatique
     # Relance la connexion ACTIVE (WiFi ou Ethernet) si elle tombe,
@@ -863,28 +1087,35 @@
         mode: "0755"
         content: |
           #!/bin/bash
-          # Surveille la dernière connexion NetworkManager activée (WiFi ou Ethernet)
-          # et la relance si elle tombe. Ne reconnecte QUE ce que l'utilisateur a
+          # Surveille TOUTES les connexions NetworkManager activees (WiFi + Ethernet)
+          # et relance chacune si elle tombe. Ne reconnecte QUE ce que l'utilisateur a
           # activé (pas d'auto-join de réseaux connus au hasard) -> compatible vie privée.
           # L'état est en /run : rien n'est reconnecté après un reboot tant que
           # l'utilisateur n'a pas établi une première connexion manuelle.
-          STATE=/run/nm-last-active-connection
+          # Support dual-homed : garde separement le WiFi et l'Ethernet, si le WiFi
+          # tombe pendant que l'Ethernet reste up, le WiFi est bien relance (le bug
+          # historique `head -n1` ne prenait qu'un seul UUID).
+          STATE=/run/nm-known-connections
           INTERVAL=10
 
           while true; do
-            active_uuid=$(nmcli -t -f UUID,TYPE connection show --active 2>/dev/null \
-              | grep -E ':(802-11-wireless|802-3-ethernet)$' \
-              | head -n1 | cut -d: -f1)
+            active=$(nmcli -t -f UUID,TYPE connection show --active 2>/dev/null \
+              | awk -F: '$2=="802-11-wireless" || $2=="802-3-ethernet" {print $1}')
 
-            if [ -n "$active_uuid" ]; then
-              # Une connexion filaire/WiFi est active : on la mémorise
-              echo "$active_uuid" > "$STATE"
-            elif [ -f "$STATE" ]; then
-              # Plus rien d'actif : on relance la dernière connexion connue
-              last_uuid=$(cat "$STATE")
-              if [ -n "$last_uuid" ]; then
-                nmcli --wait 20 connection up uuid "$last_uuid" >/dev/null 2>&1 || true
-              fi
+            # Memoriser TOUS les UUID actifs (un par ligne). Si aucun n'est actif, on garde
+            # le fichier tel quel pour pouvoir relancer les derniers connus.
+            if [ -n "$active" ]; then
+              printf '%s\n' "$active" > "$STATE"
+            fi
+
+            # Pour chaque UUID connu, s'il n'est PAS dans la liste active, on le relance.
+            if [ -f "$STATE" ]; then
+              while read -r u; do
+                [ -n "$u" ] || continue
+                if ! printf '%s\n' "$active" | grep -qx "$u"; then
+                  nmcli --wait 20 connection up uuid "$u" >/dev/null 2>&1 || true
+                fi
+              done < "$STATE"
             fi
             sleep "$INTERVAL"
           done
@@ -938,7 +1169,9 @@
     - name: "Appliquer immédiatement aux interfaces Ethernet déjà présentes"
       become: true
       ansible.builtin.shell: |
-        for iface in $(ls /sys/class/net/ | grep -E '^(en|eth)'); do
+        for dev in /sys/class/net/en* /sys/class/net/eth*; do
+          [ -e "$dev" ] || continue
+          iface=$(basename "$dev")
           /usr/sbin/ethtool --set-eee "$iface" eee off 2>/dev/null || true
           /usr/sbin/ethtool -s "$iface" wol d 2>/dev/null || true
         done
@@ -948,19 +1181,32 @@
       failed_when: false
       tags: [ethernet, network]
     # ======================
-    # Activer IP forwarding (IPv4 + IPv6)
+    # Activer IP forwarding (IPv4 + IPv6) + durcir les redirects
     # ======================
-    - name: "Activer IP forwarding (persistant)"
+    # Le forwarding est actif en permanence (usage pentest : bettercap, relais SOCKS).
+    # Un hote qui forwarde ET emet/accepte des ICMP redirects est TRES distinctif :
+    # il ressort immediatement d'un scan/traceroute -> signal "machine d'attaque".
+    # On desactive donc emission ET acceptation des redirects (v4+v6) pour minimiser
+    # cette signature comportementale sans casser le routage.
+    - name: "Activer IP forwarding + neutraliser les ICMP redirects (persistant)"
       become: true
       ansible.posix.sysctl:
-        name: "{{ item }}"
-        value: "1"
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
         sysctl_set: true
         state: present
         reload: true
       loop:
-        - net.ipv4.ip_forward
-        - net.ipv6.conf.all.forwarding
+        - { name: net.ipv4.ip_forward, value: "1" }
+        - { name: net.ipv6.conf.all.forwarding, value: "1" }
+        - { name: net.ipv4.conf.all.send_redirects, value: "0" }
+        - { name: net.ipv4.conf.default.send_redirects, value: "0" }
+        - { name: net.ipv4.conf.all.accept_redirects, value: "0" }
+        - { name: net.ipv4.conf.default.accept_redirects, value: "0" }
+        - { name: net.ipv6.conf.all.accept_redirects, value: "0" }
+        - { name: net.ipv6.conf.default.accept_redirects, value: "0" }
+      loop_control:
+        label: "{{ item.name }}={{ item.value }}"
       tags: [network, forwarding]
     # ======================
     # Proxychains – Changer port SOCKS par défaut
@@ -989,19 +1235,32 @@
       failed_when: false
       tags: [avahi, privacy]
     # ======================
-    # systemd-resolved – Configuration DNS
+    # systemd-resolved – Configuration DNS + epinglage LLMNR/mDNS
     # ======================
-    - name: "Désactiver DNSStubListener dans systemd-resolved"
+    # LLMNR (UDP 5355) et MulticastDNS (UDP 5353) diffusent le hostname sur le LAN
+    # a chaque requete. Sur Ubuntu 24.04 le defaut COMPILE est deja "no" pour les
+    # deux, mais rien ne l'epingle explicitement -> un update systemd ou un
+    # drop-in inattendu suffirait a reactiver la diffusion. On les fixe donc en
+    # dur avec community.general.ini_file (garantit la section [Resolve], ce que
+    # lineinfile ne fait pas si la section n'existe pas encore).
+    - name: "Epingler LLMNR / MulticastDNS / DNSStubListener a 'no'"
       become: true
-      ansible.builtin.lineinfile:
+      community.general.ini_file:
         path: /etc/systemd/resolved.conf
-        regexp: '^\s*#?\s*DNSStubListener='
-        line: 'DNSStubListener=no'
-        insertafter: '^\[Resolve\]'
-        create: true
+        section: Resolve
+        option: "{{ item.k }}"
+        value: "{{ item.v }}"
+        mode: "0644"
         backup: true
+        no_extra_spaces: true
+      loop:
+        - { k: LLMNR, v: 'no' }
+        - { k: MulticastDNS, v: 'no' }
+        - { k: DNSStubListener, v: 'no' }
+      loop_control:
+        label: "{{ item.k }}={{ item.v }}"
       notify: restart_systemd_resolved
-      tags: [dns, systemd]
+      tags: [dns, systemd, privacy]
     - name: "Configurer resolv.conf comme lien symbolique"
       become: true
       ansible.builtin.file:
@@ -1071,7 +1330,7 @@
     # ======================
     - name: "Détecter si on est dans une VM VirtualBox"
       ansible.builtin.set_fact:
-        is_virtualbox_vm: "{{ ansible_virtualization_type == 'virtualbox' or ansible_system_vendor == 'innotek GmbH' or 'VirtualBox' in (ansible_product_name | default('')) }}"
+        is_virtualbox_vm: "{{ (ansible_virtualization_type | default('')) == 'virtualbox' or (ansible_system_vendor | default('')) == 'innotek GmbH' or 'VirtualBox' in (ansible_product_name | default('')) }}"
       tags: [virtualbox]
     - name: "Afficher la détection VirtualBox"
       ansible.builtin.debug:
@@ -1117,7 +1376,9 @@
             "iptables": false
           }
         mode: "0644"
-      notify: restart_docker
+      # Pas de notify: restart_docker. Le service docker.service est desactive plus
+      # bas (start manuel a la demande), et le reboot final applique la nouvelle
+      # daemon.json quand l'utilisateur demarrera docker.
       tags: [docker]
     - name: "Supprimer l'interface docker0 si elle existe"
       become: true
@@ -1144,24 +1405,37 @@
     # ======================
     # ZSH / Oh My Zsh
     # ======================
-    - name: "Définir zsh comme shell par défaut"
-      become: true
-      ansible.builtin.user:
-        name: "{{ ansible_user_id }}"
-        shell: /usr/bin/zsh
-      tags: [zsh]
     - name: "Vérifier Oh My Zsh"
       ansible.builtin.stat:
         path: "{{ omz_dir }}"
       register: omz_stat
       tags: [zsh]
-    - name: "Installer Oh My Zsh"
-      ansible.builtin.shell: |
-        RUNZSH=no CHSH=no KEEP_ZSHRC=yes \
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-      args:
+    - name: "Installer Oh My Zsh (verification integrite et rc reel)"
+      ansible.builtin.shell:
         executable: /bin/bash
+        cmd: |
+          set -euo pipefail
+          tmp=/tmp/omz-install-$$.sh
+          curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh -o "$tmp"
+          # Un curl -f qui echoue laisse un fichier vide -> on refuse d'executer.
+          if [ ! -s "$tmp" ]; then
+            rm -f "$tmp"
+            echo "Telechargement OMZ vide ou echec"
+            exit 1
+          fi
+          RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh "$tmp" --unattended
+          rc=$?
+          rm -f "$tmp"
+          exit $rc
       when: not omz_stat.stat.exists
+      tags: [zsh]
+    # chsh APRES OMZ : si l'install echoue, l'utilisateur ne se retrouve pas avec
+    # zsh comme login shell et un .zshrc casse au prochain login.
+    - name: "Définir zsh comme shell par défaut"
+      become: true
+      ansible.builtin.user:
+        name: "{{ ansible_user_id }}"
+        shell: /usr/bin/zsh
       tags: [zsh]
     - name: "Forcer le thème gentoo"
       ansible.builtin.lineinfile:
@@ -1195,7 +1469,10 @@
       ansible.builtin.lineinfile:
         path: "{{ zshrc_path }}"
         regexp: '^plugins='
-        line: 'plugins=(zsh-syntax-highlighting zsh-completions zsh-autosuggestions tmux fzf zsh-z zsh-nvm)'
+        # zsh-syntax-highlighting DOIT etre charge en DERNIER (cf. son INSTALL.md :
+        # "must be the last plugin sourced" pour envelopper tous les widgets ZLE
+        # definis par les plugins precedents, notamment zsh-autosuggestions).
+        line: 'plugins=(zsh-completions tmux fzf zsh-z zsh-nvm zsh-autosuggestions zsh-syntax-highlighting)'
         create: true
       tags: [zsh, plugins]
     # ======================
@@ -1255,12 +1532,20 @@
     # ======================
     # Exegold (désactivable via -e install_exegold=false)
     # ======================
-    - name: "Cloner Exegold"
+    - name: "Vérifier si Exegold est déjà cloné"
+      ansible.builtin.stat:
+        path: "{{ exegold_dir }}/.git"
+      register: exegold_git_stat
+      when: install_exegold
+      tags: [exegold]
+    - name: "Cloner Exegold (uniquement si absent)"
+      # update:false + clone seulement si absent : on ne touche jamais a un depot
+      # existant, meme s'il a des modifs locales. Pour MAJ : `git -C ~/Exegold pull`.
       ansible.builtin.git:
         repo: https://github.com/fsoc106/Exegold
         dest: "{{ exegold_dir }}"
-        update: true
-      when: install_exegold
+        update: false
+      when: install_exegold and not (exegold_git_stat.stat.exists | default(false))
       tags: [exegold]
     - name: "Créer venv pour Exegold"
       ansible.builtin.command: python3 -m venv {{ exegold_venv }}
@@ -1293,10 +1578,22 @@
       failed_when: false
       changed_when: false
       tags: [claude-code]
-    - name: "Installer Claude Code"
-      ansible.builtin.shell: curl -fsSL https://claude.ai/install.sh | bash
-      args:
+    - name: "Installer Claude Code (telechargement puis execution, rc reel)"
+      ansible.builtin.shell:
         executable: /bin/bash
+        cmd: |
+          set -euo pipefail
+          tmp=/tmp/claude-install-$$.sh
+          curl -fsSL https://claude.ai/install.sh -o "$tmp"
+          if [ ! -s "$tmp" ]; then
+            rm -f "$tmp"
+            echo "Telechargement Claude Code vide ou echec"
+            exit 1
+          fi
+          bash "$tmp"
+          rc=$?
+          rm -f "$tmp"
+          exit $rc
       when: claude_code_check.rc != 0
       tags: [claude-code]
     # ======================
@@ -1314,14 +1611,19 @@
     # ======================
     # Reboot
     # ======================
+    # tags: [always] pour que la pause + le flush s'appliquent quel que soit
+    # --tags (sinon `--tags system` notifie le reboot mais SAUTE la pause :
+    # la machine redemarre sans confirmation au flush automatique de fin de play).
+    # Skip de la pause si -e auto_confirm=true (utile en CI/cron).
     - name: "Confirmer avant d'appliquer les changements nécessitant un redémarrage"
       ansible.builtin.pause:
         prompt: "Appuyez sur Entrée pour appliquer les changements en attente (un reboot peut être déclenché), ou Ctrl+C puis 'A' pour annuler"
-      tags: [reboot]
+      when: not (auto_confirm | default(false) | bool)
+      tags: [always, reboot]
     - name: "Appliquer les handlers en attente (déclenche le reboot si nécessaire)"
       ansible.builtin.meta: flush_handlers
-      tags: [reboot]
+      tags: [always, reboot]
     - name: "Message final"
       ansible.builtin.debug:
-        msg: "Configuration terminée ! Si des changements l'exigeaient, le système redémarrera dans 1 minute."
-      tags: [reboot]
+        msg: "Configuration terminée ! Si des changements l'exigeaient, le système redémarrera dans 1 minute. Ne pas oublier : apres reboot la machine n'a AUCUNE connexion active (autoconnect=off partout), il faut la lancer manuellement."
+      tags: [always, reboot]
