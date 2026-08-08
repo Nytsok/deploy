@@ -853,6 +853,45 @@
       when: hostname_result is changed
       tags: [privacy, hostname, brave]
     # ======================
+    # dhcpcd – Neutraliser le hostname (client DHCP alternatif que certains VPN invoquent)
+    # ======================
+    # dhcpcd-base est installe (service inactif) mais peut etre appele par un script
+    # up de VPN, par openvpn/openfortivpn en secours, ou active a la main. Deux voies
+    # de fuite du hostname a fermer, independamment de NetworkManager :
+    #  - SORTANTE : dhcpcd n'envoie le hostname QUE si la directive `hostname` existe
+    #    (elle n'existe pas ici) -> on ne l'ajoute jamais, aucun envoi possible.
+    #  - ENTRANTE : `option host_name` reclame le hostname au serveur DHCP/VPN, et le
+    #    hook dhcpcd-hooks/30-hostname l'ecrit dans le noyau tant que le hostname
+    #    courant est "par defaut" (vide / (none) / localhost). Avec "ubuntu" le hook
+    #    s'abstient deja, mais on verrouille sans dependre de cet etat : on retire la
+    #    demande `option host_name` ET on desactive le hook (`nohook hostname`).
+    - name: "Verifier la presence de /etc/dhcpcd.conf"
+      ansible.builtin.stat:
+        path: /etc/dhcpcd.conf
+      register: dhcpcd_conf_stat
+      tags: [privacy, hostname, dhcpcd]
+    - name: "dhcpcd : ne plus reclamer le hostname au serveur (option host_name)"
+      become: true
+      ansible.builtin.replace:
+        path: /etc/dhcpcd.conf
+        regexp: '^([ \t]*)option[ \t]+host_name[ \t]*$'
+        replace: '\1# option host_name  # desactive : anti-fuite hostname (VPN/DHCP)'
+        backup: true
+      when: dhcpcd_conf_stat.stat.exists
+      tags: [privacy, hostname, dhcpcd]
+    - name: "dhcpcd : desactiver le hook qui ecrit le hostname (nohook hostname)"
+      become: true
+      ansible.builtin.blockinfile:
+        path: /etc/dhcpcd.conf
+        marker: "# {mark} ANSIBLE PRIVACY hostname"
+        block: |
+          # Ne jamais appliquer un hostname pousse par le serveur DHCP/VPN
+          # (desactive dhcpcd-hooks/30-hostname).
+          nohook hostname
+          # Aucune directive `hostname` ci-dessous => dhcpcd n'envoie jamais le hostname.
+      when: dhcpcd_conf_stat.stat.exists
+      tags: [privacy, hostname, dhcpcd]
+    # ======================
     # NetworkManager – Configuration privacy consolidee (source unique de verite)
     # ======================
     # Historique : le playbook posait 3 fichiers conf.d (00-disable-dhcp-hostname,
@@ -1075,6 +1114,84 @@
       loop_control:
         label: "{{ item.item }}"
       tags: [networkmanager, privacy]
+    # ======================
+    # NetworkManager – Profils VPN / WireGuard : ne jamais envoyer le hostname
+    # ======================
+    # Le durcissement per-profil ci-dessus filtre volontairement WiFi + Ethernet
+    # (pour ne pas toucher a l'autoconnect d'un VPN, cf. kill-switch). Mais un profil
+    # VPN (network-manager-openvpn) ou WireGuard possede lui aussi un reglage
+    # ipv4/ipv6.dhcp-send-hostname (utilise si le tunnel monte en DHCP, ex. OpenVPN
+    # en mode TAP). On le force a `no` sur CES profils aussi, SANS toucher a leur
+    # autoconnect (laisse a l'utilisateur, pour ne pas casser un kill-switch VPN).
+    # Le dispatcher 50-privacy-newprofile durcit deja ces profils au moment ou ils
+    # montent ; ici on epingle la valeur dans le profil statique ET on l'AUDITE.
+    # (Aucun profil VPN/WG present -> boucles vides et no-op ; le durcissement
+    # s'appliquera automatiquement des la creation d'un profil.)
+    - name: "Lister les profils VPN / WireGuard"
+      become: true
+      ansible.builtin.shell: |
+        set -o pipefail
+        nmcli -t -f UUID,TYPE connection show \
+          | awk -F: '$2=="vpn" || $2=="wireguard" {print $1}'
+      args:
+        executable: /bin/bash
+      register: nm_vpn_uuids
+      changed_when: false
+      tags: [networkmanager, privacy, vpn]
+    - name: "Interdire l'envoi du hostname sur les profils VPN / WireGuard"
+      become: true
+      ansible.builtin.command: >
+        nmcli connection modify {{ item }}
+        ipv4.dhcp-send-hostname no
+        ipv6.dhcp-send-hostname no
+      loop: "{{ nm_vpn_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: nm_vpn_mod
+      changed_when: nm_vpn_mod.rc == 0
+      tags: [networkmanager, privacy, vpn]
+    - name: "Auditer les profils VPN / WireGuard (dhcp-send-hostname)"
+      become: true
+      ansible.builtin.command: >
+        nmcli -g ipv4.dhcp-send-hostname,ipv6.dhcp-send-hostname
+        connection show {{ item }}
+      loop: "{{ nm_vpn_uuids.stdout_lines | default([]) }}"
+      loop_control:
+        label: "{{ item }}"
+      register: nm_vpn_audit
+      changed_when: false
+      tags: [networkmanager, privacy, vpn]
+    - name: "Asserter qu'aucun profil VPN / WireGuard n'envoie le hostname"
+      ansible.builtin.assert:
+        that:
+          - "(item.stdout_lines | map('lower') | list) == ['no', 'no']"
+        fail_msg: "Profil VPN/WG {{ item.item }} envoie le hostname : {{ item.stdout_lines }}"
+        success_msg: "Profil VPN/WG {{ item.item }} : hostname jamais envoye (ok)."
+      loop: "{{ nm_vpn_audit.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      tags: [networkmanager, privacy, vpn]
+    # ======================
+    # Verification finale – Le hostname reste generique (preuve anti-identification)
+    # ======================
+    # Meme si tous les canaux d'envoi sont coupes, la garantie ultime est que le
+    # hostname statique lui-meme n'est PAS identifiant. On lit la valeur effective et
+    # on bloque si elle a derive vers autre chose que "ubuntu"/"localhost" -> ainsi
+    # une eventuelle fuite residuelle (protocole non couvert, appli tierce) ne
+    # revelerait qu'un nom generique, indistinguable de millions d'installs Ubuntu.
+    - name: "Lire le hostname statique effectif (verification)"
+      become: true
+      ansible.builtin.command: hostnamectl --static
+      register: static_hostname_check
+      changed_when: false
+      tags: [privacy, hostname, verify]
+    - name: "Asserter que le hostname statique est generique (non identifiant)"
+      ansible.builtin.assert:
+        that:
+          - "(static_hostname_check.stdout | trim) in ['ubuntu', 'localhost']"
+        success_msg: "Hostname statique = '{{ static_hostname_check.stdout | trim }}' (generique : se fond dans la masse, meme sous VPN)."
+        fail_msg: "Hostname statique '{{ static_hostname_check.stdout | trim }}' NON generique -> risque d'identification meme sous VPN."
+      tags: [privacy, hostname, verify]
     # ======================
     # NetworkManager – Watchdog de reconnexion automatique
     # Relance la connexion ACTIVE (WiFi ou Ethernet) si elle tombe,
